@@ -29,6 +29,32 @@ func DiscoverGraph(ctx context.Context, client xclient.XClient, seed []model.Use
 	return out, nil
 }
 
+// DiscoverGraphMultiHop expands follow graph up to given depth (>=1).
+func DiscoverGraphMultiHop(ctx context.Context, client xclient.XClient, seed []model.User, depth int, limit int) ([]model.User, error) {
+    if depth < 1 { depth = 1 }
+    seen := make(map[string]struct{})
+    var frontier []model.User = seed
+    var collected []model.User
+    for _, s := range seed { seen[s.ID] = struct{}{} }
+    for d := 0; d < depth && len(collected) < limit; d++ {
+        var next []model.User
+        for _, u := range frontier {
+            follows, err := client.GetFollowing(ctx, u.ID, 200)
+            if err != nil { continue }
+            for _, v := range follows {
+                if _, ok := seen[v.ID]; ok { continue }
+                seen[v.ID] = struct{}{}
+                collected = append(collected, v)
+                next = append(next, v)
+                if len(collected) >= limit { break }
+            }
+            if len(collected) >= limit { break }
+        }
+        frontier = next
+    }
+    return collected, nil
+}
+
 // RankGraph merges discovered users with scores and returns top candidates, with boosts for mutuals and interaction frequency.
 func RankGraph(ctx context.Context, db *sqlitevec.DB, users []model.User, seed []model.User, keywords []string, weights map[string]float64) []AccountRecommendation {
     base := RankAccounts(users, keywords, weights)
