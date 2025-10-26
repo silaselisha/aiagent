@@ -153,6 +153,9 @@ func cmdRecommend() {
         already := make(map[string]struct{})
         for _, u := range follows { already[u.ID] = struct{}{} }
         newUsers, _ := recommend.DiscoverAccountsFromTweets(ctx, client, tweets, already)
+        // Graph expansion: mutuals and one-hop
+        graphUsers, _ := recommend.DiscoverGraph(ctx, client, follows, 200)
+        newUsers = append(newUsers, graphUsers...)
         if len(newUsers) > 0 {
             newRecs := recommend.RankAccounts(newUsers, cfg.Interests.Keywords, cfg.Interests.Weights)
             fmt.Println("New accounts to consider:")
@@ -205,11 +208,11 @@ func cmdEngage() {
         if err == nil && upgraded != "" { sugs[i].Text = upgraded }
     }
     // Gate by calibrated threshold if model is present
-    thr := engage.LoadThreshold("./starseed_model.json")
+    db, _ := sqlitevec.Open(cfg.Storage.DBPath)
+    if db != nil { defer db.Close() }
+    thr := engage.LoadEffectiveThreshold(db, "./starseed_model.json")
     if thr > 0 {
         // Build feature for now window and infer
-        db, _ := sqlitevec.Open(cfg.Storage.DBPath)
-        if db != nil { defer db.Close() }
         fv, _ := nn.BuildFeaturesWithHistory(ctx, db, now.Add(-15*time.Minute), tweetsToModel(tweets), nil)
         preds, _ := nn.Infer("./starseed-nn/target/release/starseed-nn", "./starseed_model.json", []nn.FeatureVector{fv})
         if !engage.ShouldEngage(ctx, thr, preds) {
