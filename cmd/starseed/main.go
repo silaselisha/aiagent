@@ -106,11 +106,19 @@ func cmdAnalyze() {
 	me, err := client.GetUserByUsername(ctx, cfg.Account.Username)
 	if err != nil { fmt.Println("error:", err); os.Exit(1) }
     follows, err := client.GetFollowing(ctx, me.ID, *limit)
-	if err != nil { fmt.Println("error:", err); os.Exit(1) }
-	fmt.Printf("Following: %d users\n", len(follows))
-    // Ingest recent tweets from followings
-    tl, err := ingest.FromFollowing(ctx, client, follows, 5, *limit)
-    if err != nil { fmt.Println("timeline error:", err) }
+    if err != nil { fmt.Println("error:", err); os.Exit(1) }
+    fmt.Printf("Following: %d users\n", len(follows))
+    // Try v1.1 home timeline if OAuth creds present
+    var tl []model.Tweet
+    if cfg.Credentials.ConsumerKey != "" && cfg.Credentials.AccessToken != "" {
+        v1 := xclient.NewV1Client(client, cfg.Credentials.ConsumerKey, cfg.Credentials.ConsumerSecret, cfg.Credentials.AccessToken, cfg.Credentials.AccessSecret)
+        if home, err := v1.GetHomeTimeline(ctx, me.ID, *limit); err == nil { tl = home }
+    }
+    if len(tl) == 0 {
+        // Fallback: followings proxy
+        tl, err = ingest.FromFollowing(ctx, client, follows, 5, *limit)
+        if err != nil { fmt.Println("timeline error:", err) }
+    }
     fmt.Printf("Timeline ingested: %d tweets\n", len(tl))
 }
 
