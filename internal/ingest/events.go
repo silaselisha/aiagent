@@ -11,25 +11,71 @@ import (
 
 // IngestEngagements fetches likes and mentions and stores them as events.
 func IngestEngagements(ctx context.Context, db *sqlitevec.DB, client xclient.XClient, userID string, username string, since time.Time) error {
-    likes, err := client.GetLikedTweets(ctx, userID, 100)
-	if err == nil {
-		for _, t := range likes {
-			_ = db.PutEvent(ctx, t.CreatedAt, "like", map[string]any{"tweet_id": t.ID, "author_id": t.AuthorID})
-		}
-	}
-    // Fetch replies to our account via recent search: from cursor to next window end
+    now := time.Now().UTC()
+    // Likes
+    likesSince := since
+    if v, err := db.LoadCursor(ctx, "ingest:likes_since"); err == nil {
+        if ts, err2 := time.Parse(time.RFC3339Nano, v); err2 == nil { likesSince = ts }
+    }
+    if likes, err := client.GetLikedTweets(ctx, userID, 100); err == nil {
+        for _, t := range likes {
+            if t.CreatedAt.Before(likesSince) { continue }
+            _ = db.PutEvent(ctx, t.CreatedAt, "like", map[string]any{"tweet_id": t.ID, "author_id": t.AuthorID})
+        }
+    }
+    _ = db.SaveCursor(ctx, "ingest:likes_since", now.Format(time.RFC3339Nano))
+
+    // Replies to us via search
     if username != "" {
+        repliesSince := since
+        if v, err := db.LoadCursor(ctx, "ingest:replies_since"); err == nil {
+            if ts, err2 := time.Parse(time.RFC3339Nano, v); err2 == nil { repliesSince = ts }
+        }
         q := "to:" + username
-        replies, err2 := client.SearchRecentTweetsSince(ctx, q, 100, time.Now().UTC().Add(-15*time.Minute))
-        if err2 == nil {
+        if replies, err := client.SearchRecentTweetsSince(ctx, q, 100, repliesSince); err == nil {
             for _, t := range replies {
+                if t.CreatedAt.Before(repliesSince) { continue }
                 _ = db.PutEvent(ctx, t.CreatedAt, "reply", map[string]any{"tweet_id": t.ID, "author_id": t.AuthorID})
             }
         }
+        _ = db.SaveCursor(ctx, "ingest:replies_since", now.Format(time.RFC3339Nano))
     }
-    // Retweets and quotes: infer via search and quote_tweets endpoint if needed
-    // For simplicity, treat retweets as mentions of "RT @" in text (approximation), quotes via /quote_tweets per tweet event in window
-	return nil
+
+    // Outbound retweets by us (approx): search from:username is:retweet
+    if username != "" {
+        rtSince := since
+        if v, err := db.LoadCursor(ctx, "ingest:retweets_since"); err == nil {
+            if ts, err2 := time.Parse(time.RFC3339Nano, v); err2 == nil { rtSince = ts }
+        }
+        q := "from:" + username + " is:retweet"
+        if rts, err := client.SearchRecentTweetsSince(ctx, q, 100, rtSince); err == nil {
+            for _, t := range rts {
+                if t.CreatedAt.Before(rtSince) { continue }
+                _ = db.PutEvent(ctx, t.CreatedAt, "retweet", map[string]any{"tweet_id": t.ID, "author_id": t.AuthorID})
+            }
+        }
+        _ = db.SaveCursor(ctx, "ingest:retweets_since", now.Format(time.RFC3339Nano))
+    }
+
+    // Quotes of our recent tweets: fetch our recent tweets then quote_tweets per tweet
+    qtSince := since
+    if v, err := db.LoadCursor(ctx, "ingest:quotes_since"); err == nil {
+        if ts, err2 := time.Parse(time.RFC3339Nano, v); err2 == nil { qtSince = ts }
+    }
+    if userID != "" {
+        if my, err := client.GetUserTweets(ctx, userID, 20); err == nil {
+            for _, orig := range my {
+                if quotes, err := client.GetQuoteTweets(ctx, orig.ID, 50); err == nil {
+                    for _, qt := range quotes {
+                        if qt.CreatedAt.Before(qtSince) { continue }
+                        _ = db.PutEvent(ctx, qt.CreatedAt, "quote", map[string]any{"tweet_id": qt.ID, "author_id": qt.AuthorID, "target_id": orig.ID})
+                    }
+                }
+            }
+        }
+    }
+    _ = db.SaveCursor(ctx, "ingest:quotes_since", now.Format(time.RFC3339Nano))
+    return nil
 }
 
 // BackfillLabels computes y(t+1) = log1p(replies) proxy using next-window reply events.
