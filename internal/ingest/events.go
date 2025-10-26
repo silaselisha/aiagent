@@ -10,20 +10,23 @@ import (
 )
 
 // IngestEngagements fetches likes and mentions and stores them as events.
-func IngestEngagements(ctx context.Context, db *sqlitevec.DB, client xclient.XClient, userID string, since time.Time) error {
-	likes, err := client.GetLikedTweets(ctx, userID, 100)
+func IngestEngagements(ctx context.Context, db *sqlitevec.DB, client xclient.XClient, userID string, username string, since time.Time) error {
+    likes, err := client.GetLikedTweets(ctx, userID, 100)
 	if err == nil {
 		for _, t := range likes {
 			_ = db.PutEvent(ctx, t.CreatedAt, "like", map[string]any{"tweet_id": t.ID, "author_id": t.AuthorID})
 		}
 	}
-	mentions, err := client.GetMentions(ctx, userID, 100)
-	if err == nil {
-		for _, t := range mentions {
-            // Treat mentions as replies proxy for labeling
-            _ = db.PutEvent(ctx, t.CreatedAt, "reply", map[string]any{"tweet_id": t.ID, "author_id": t.AuthorID})
-		}
-	}
+    // Fetch replies to our account via recent search: from cursor to next window end
+    if username != "" {
+        q := "to:" + username
+        replies, err2 := client.SearchRecentTweetsSince(ctx, q, 100, time.Now().UTC().Add(-15*time.Minute))
+        if err2 == nil {
+            for _, t := range replies {
+                _ = db.PutEvent(ctx, t.CreatedAt, "reply", map[string]any{"tweet_id": t.ID, "author_id": t.AuthorID})
+            }
+        }
+    }
 	return nil
 }
 

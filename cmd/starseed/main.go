@@ -252,7 +252,7 @@ func cmdIngestEvents() {
     if err != nil { fmt.Println("db error:", err); os.Exit(1) }
     defer db.Close()
     since := time.Now().UTC().Add(time.Duration(-*hours) * time.Hour)
-    if err := ingest.IngestEngagements(ctx, db, client, me.ID, since); err != nil { fmt.Println("ingest error:", err) }
+    if err := ingest.IngestEngagements(ctx, db, client, me.ID, cfg.Account.Username, since); err != nil { fmt.Println("ingest error:", err) }
     // Backfill labels for windows in [since, now]
     if err := ingest.BackfillLabels(ctx, db, since, time.Now().UTC()); err != nil { fmt.Println("label error:", err) }
     fmt.Println("Events ingested and labels backfilled.")

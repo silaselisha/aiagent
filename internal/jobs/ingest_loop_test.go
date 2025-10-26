@@ -21,7 +21,9 @@ func (fx) GetHomeTimeline(ctx context.Context, userID string, limit int) ([]mode
 func (fx) GetFollowing(ctx context.Context, userID string, limit int) ([]model.User, error) { return nil, nil }
 func (fx) SearchRecentTweets(ctx context.Context, query string, limit int) ([]model.Tweet, error) { return nil, nil }
 func (fx) SearchRecentTweetsSince(ctx context.Context, query string, limit int, start time.Time) ([]model.Tweet, error) {
-    return nil, nil
+    // Return a tweet 20 minutes after the ws used in the test to fall into next window
+    // start is ignored in this fake; we base on current time
+    return []model.Tweet{{ID: "r1", AuthorID: "a2", CreatedAt: time.Now().UTC().Add(-10 * time.Minute)}}, nil
 }
 func (fx) GetUserTweets(ctx context.Context, userID string, limit int) ([]model.Tweet, error) { return nil, nil }
 func (fx) GetUsersByIDs(ctx context.Context, ids []string) ([]model.User, error) { return nil, nil }

@@ -25,7 +25,7 @@ func RunIngestionOnce(ctx context.Context, db *sqlitevec.DB, client xclient.XCli
 	if err != nil {
 		return err
 	}
-	if err := ingest.IngestEngagements(ctx, db, client, me.ID, since); err != nil {
+    if err := ingest.IngestEngagements(ctx, db, client, me.ID, cfg.Account.Username, since); err != nil {
 		return err
 	}
 	if err := ingest.BackfillLabels(ctx, db, since, now); err != nil {
