@@ -45,6 +45,8 @@ func main() {
         cmdNNTrain()
     case "nn-infer":
         cmdNNInfer()
+    case "ingest-events":
+        cmdIngestEvents()
 	default:
 		printHelp()
 	}
@@ -63,6 +65,7 @@ func printHelp() {
 	fmt.Println("  schedule    Show next engagement window")
     fmt.Println("  nn-train    Train NN on 15-min features")
     fmt.Println("  nn-infer    Infer with NN on 15-min features")
+    fmt.Println("  ingest-events  Fetch likes/mentions and backfill labels")
 }
 
 func mustLoadClient(cfg config.Config) *xclient.HTTPClient {
@@ -199,6 +202,27 @@ func cmdSchedule() {
 	qh := parseHours(*quiet)
 	next := scheduleNext(qh)
 	fmt.Println("Next window:", next.Format(time.RFC3339))
+}
+
+func cmdIngestEvents() {
+    fs := flag.NewFlagSet("ingest-events", flag.ExitOnError)
+    cfgPath := fs.String("config", "./starseed.yaml", "config path")
+    hours := fs.Int("hours", 6, "how many recent hours to process")
+    _ = fs.Parse(os.Args[2:])
+    cfg, err := config.Load(*cfgPath)
+    if err != nil { fmt.Println("error:", err); os.Exit(1) }
+    client := mustLoadClient(cfg)
+    ctx := context.Background()
+    me, err := client.GetUserByUsername(ctx, cfg.Account.Username)
+    if err != nil { fmt.Println("error:", err); os.Exit(1) }
+    db, err := sqlitevec.Open(cfg.Storage.DBPath)
+    if err != nil { fmt.Println("db error:", err); os.Exit(1) }
+    defer db.Close()
+    since := time.Now().UTC().Add(time.Duration(-*hours) * time.Hour)
+    if err := ingest.IngestEngagements(ctx, db, client, me.ID, since); err != nil { fmt.Println("ingest error:", err) }
+    // Backfill labels for windows in [since, now]
+    if err := ingest.BackfillLabels(ctx, db, since, time.Now().UTC()); err != nil { fmt.Println("label error:", err) }
+    fmt.Println("Events ingested and labels backfilled.")
 }
 
 func cmdNNTrain() {

@@ -35,7 +35,7 @@ func (d *DB) migrate() error {
 	  label REAL,
 	  meta TEXT
 	);
-	CREATE INDEX IF NOT EXISTS idx_fw_start ON feature_windows(window_start);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fw_start ON feature_windows(window_start);
 	CREATE TABLE IF NOT EXISTS events (
 	  id INTEGER PRIMARY KEY AUTOINCREMENT,
 	  ts INTEGER NOT NULL,
@@ -82,6 +82,12 @@ func (d *DB) LoadFeatures(ctx context.Context, start, end time.Time) ([]time.Tim
 		y = append(y, lbl)
 	}
 	return ts, X, y, rows.Err()
+}
+
+// UpdateFeatureLabel sets the label for a given window_start.
+func (d *DB) UpdateFeatureLabel(ctx context.Context, windowStart time.Time, label float32) error {
+    _, err := d.sql.ExecContext(ctx, `UPDATE feature_windows SET label=? WHERE window_start=?`, label, windowStart.Unix())
+    return err
 }
 
 // PutEvent stores an engagement event.
