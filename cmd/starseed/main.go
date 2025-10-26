@@ -219,6 +219,7 @@ func cmdNNTrain() {
     if err != nil { fmt.Println("error:", err); os.Exit(1) }
     // Build samples over the last few hours from followings' tweets (proxy)
     timeline, _ := ingest.FromFollowing(ctx, client, follows, 5, 300)
+    authors, _ := ingest.CollectAuthors(ctx, client, timeline)
     var samples []nn.FeatureVector
     // Persist features in vector DB for rolling and later training
     db, err := sqlitevec.Open(cfg.Storage.DBPath)
@@ -228,6 +229,7 @@ func cmdNNTrain() {
     for w := 0; w < 24; w++ { // 6 hours in 15-min windows
         ws := now.Add(time.Duration(w) * 15 * time.Minute)
         fv, _ := nn.BuildFeaturesWithHistory(ctx, db, ws, timeline, nil)
+        nn.AugmentMeta(&fv, timeline, authors, cfg.Interests.Keywords, cfg.Interests.Weights)
         samples = append(samples, fv)
         _ = db.PutFeature(ctx, ws, fv.X, nil, map[string]any{"source":"train-window"})
     }
@@ -250,12 +252,14 @@ func cmdNNInfer() {
     follows, err := client.GetFollowing(ctx, me.ID, 100)
     if err != nil { fmt.Println("error:", err); os.Exit(1) }
     timeline, _ := ingest.FromFollowing(ctx, client, follows, 5, 100)
+    authors, _ := ingest.CollectAuthors(ctx, client, timeline)
     ws := time.Now().UTC().Add(-15 * time.Minute)
     // open DB to leverage rolling history during inference feature build
     db, err := sqlitevec.Open(cfg.Storage.DBPath)
     if err != nil { fmt.Println("db error:", err); os.Exit(1) }
     defer db.Close()
     fv, _ := nn.BuildFeaturesWithHistory(ctx, db, ws, timeline, nil)
+    nn.AugmentMeta(&fv, timeline, authors, cfg.Interests.Keywords, cfg.Interests.Weights)
     preds, err := nn.Infer(*bin, *modelPath, []nn.FeatureVector{fv})
     if err != nil { fmt.Println("infer error:", err); os.Exit(1) }
     if len(preds) > 0 { fmt.Printf("pred next-window reply proxy: %.3f\n", preds[0][0]) }
