@@ -99,6 +99,42 @@ func (c *V1Client) GetHomeTimeline(ctx context.Context, userID string, limit int
 	return out, nil
 }
 
+// GetHomeTimelineSince fetches tweets since a given id (exclusive) if provided.
+func (c *V1Client) GetHomeTimelineSince(ctx context.Context, sinceID string, limit int) ([]model.Tweet, error) {
+    endpoint := "https://api.twitter.com/1.1/statuses/home_timeline.json"
+    params := map[string]string{
+        "count":      fmt.Sprintf("%d", clamp(limit, 5, 200)),
+        "tweet_mode": "extended",
+    }
+    if sinceID != "" { params["since_id"] = sinceID }
+    reqURL := endpoint + "?" + encodeQuery(params)
+    req, _ := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+    c.oauth1Sign(req, params)
+    if err := c.Base.limiter.Wait(ctx); err != nil { return nil, err }
+    resp, err := c.Base.doWithRetry(ctx, req)
+    if err != nil { return nil, err }
+    defer resp.Body.Close()
+    if resp.StatusCode >= 400 { return nil, fmt.Errorf("x v1 status %d", resp.StatusCode) }
+    var raw []struct {
+        IDStr       string `json:"id_str"`
+        CreatedAt   string `json:"created_at"`
+        FullText    string `json:"full_text"`
+        Text        string `json:"text"`
+        Lang        string `json:"lang"`
+        FavoriteCount int  `json:"favorite_count"`
+        RetweetCount  int  `json:"retweet_count"`
+        User struct { IDStr string `json:"id_str"` } `json:"user"`
+    }
+    if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil { return nil, err }
+    out := make([]model.Tweet, 0, len(raw))
+    for _, t := range raw {
+        ts, _ := time.Parse(time.RubyDate, t.CreatedAt)
+        text := t.FullText; if text == "" { text = t.Text }
+        out = append(out, model.Tweet{ ID: t.IDStr, AuthorID: t.User.IDStr, Text: text, CreatedAt: ts, Language: t.Lang, LikeCount: t.FavoriteCount, RetweetCount: t.RetweetCount })
+    }
+    return out, nil
+}
+
 func (c *V1Client) oauth1Sign(req *http.Request, queryParams map[string]string) {
 	oauth := map[string]string{
 		"oauth_consumer_key":     c.ConsumerKey,
