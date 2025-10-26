@@ -27,6 +27,8 @@ type AccountConfig struct {
 type CredentialsConfig struct {
 	// X/Twitter API bearer token. If empty, read from env X_BEARER_TOKEN
 	BearerToken string `yaml:"bearerToken"`
+    // User-auth token for write actions (follow/like/etc). If empty, read X_USER_TOKEN
+    UserToken   string `yaml:"userToken"`
 }
 
 type InterestsConfig struct {
@@ -86,6 +88,9 @@ func (c *Config) ResolveEnv() {
 	if c.Credentials.BearerToken == "" {
 		c.Credentials.BearerToken = os.Getenv("X_BEARER_TOKEN")
 	}
+    if c.Credentials.UserToken == "" {
+        c.Credentials.UserToken = os.Getenv("X_USER_TOKEN")
+    }
 	if c.LLM.APIKey == "" && c.LLM.Provider == "openai" {
 		c.LLM.APIKey = os.Getenv("OPENAI_API_KEY")
 	}
