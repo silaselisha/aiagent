@@ -22,6 +22,7 @@ import (
     "starseed/internal/store/sqlitevec"
     "starseed/internal/engage"
     "starseed/internal/metrics"
+    "starseed/internal/cmdlog"
 )
 
 func main() {
@@ -31,31 +32,31 @@ func main() {
 	if len(os.Args) > 1 {
 		cmd = os.Args[1]
 	}
-	switch cmd {
+    switch cmd {
 	case "init":
-		cmdInit()
+        _ = cmdlog.Run("init", func() error { cmdInit(); return nil })
 	case "analyze":
-		cmdAnalyze()
+        _ = cmdlog.Run("analyze", func() error { cmdAnalyze(); return nil })
 	case "recommend":
-		cmdRecommend()
+        _ = cmdlog.Run("recommend", func() error { cmdRecommend(); return nil })
 	case "engage":
-		cmdEngage()
+        _ = cmdlog.Run("engage", func() error { cmdEngage(); return nil })
 	case "monitor":
-		cmdMonitor()
+        _ = cmdlog.Run("monitor", func() error { cmdMonitor(); return nil })
 	case "audit":
-		cmdAudit()
+        _ = cmdlog.Run("audit", func() error { cmdAudit(); return nil })
 	case "schedule":
-		cmdSchedule()
+        _ = cmdlog.Run("schedule", func() error { cmdSchedule(); return nil })
     case "nn-train":
-        cmdNNTrain()
+        _ = cmdlog.Run("nn_train", func() error { cmdNNTrain(); return nil })
     case "nn-infer":
-        cmdNNInfer()
+        _ = cmdlog.Run("nn_infer", func() error { cmdNNInfer(); return nil })
     case "nn-train-db":
-        cmdNNTrainDB()
+        _ = cmdlog.Run("nn_train_db", func() error { cmdNNTrainDB(); return nil })
     case "ingest-events":
-        cmdIngestEvents()
+        _ = cmdlog.Run("ingest_events", func() error { cmdIngestEvents(); return nil })
 	case "ingest-loop":
-		cmdIngestLoop()
+        _ = cmdlog.Run("ingest_loop", func() error { cmdIngestLoop(); return nil })
 	default:
 		printHelp()
 	}

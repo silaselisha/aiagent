@@ -57,6 +57,22 @@ func IngestEngagements(ctx context.Context, db *sqlitevec.DB, client xclient.XCl
         _ = db.SaveCursor(ctx, "ingest:retweets_since", now.Format(time.RFC3339Nano))
     }
 
+    // Outbound replies by us: search from:username is:reply
+    if username != "" {
+        orSince := since
+        if v, err := db.LoadCursor(ctx, "ingest:out_replies_since"); err == nil {
+            if ts, err2 := time.Parse(time.RFC3339Nano, v); err2 == nil { orSince = ts }
+        }
+        q := "from:" + username + " is:reply"
+        if outs, err := client.SearchRecentTweetsSince(ctx, q, 100, orSince); err == nil {
+            for _, t := range outs {
+                if t.CreatedAt.Before(orSince) { continue }
+                _ = db.PutEventRef(ctx, t.CreatedAt, "out_reply", t.ID, map[string]any{"tweet_id": t.ID, "author_id": t.AuthorID})
+            }
+        }
+        _ = db.SaveCursor(ctx, "ingest:out_replies_since", now.Format(time.RFC3339Nano))
+    }
+
     // Quotes of our recent tweets: fetch our recent tweets then quote_tweets per tweet
     qtSince := since
     if v, err := db.LoadCursor(ctx, "ingest:quotes_since"); err == nil {
