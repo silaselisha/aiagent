@@ -6,6 +6,7 @@ import (
 
 	"starseed/internal/config"
 	"starseed/internal/ingest"
+    "starseed/internal/metrics"
 	"starseed/internal/store/sqlitevec"
 	"starseed/internal/xclient"
     "starseed/internal/logging"
@@ -26,14 +27,19 @@ func RunIngestionOnce(ctx context.Context, db *sqlitevec.DB, client xclient.XCli
 	if err != nil {
 		return err
 	}
+    start := time.Now()
+    metrics.IngestRuns.Inc()
     if err := ingest.IngestEngagements(ctx, db, client, me.ID, cfg.Account.Username, since); err != nil {
+        metrics.IngestErrors.Inc()
 		return err
 	}
 	if err := ingest.BackfillLabels(ctx, db, since, now); err != nil {
+        metrics.IngestErrors.Inc()
 		return err
 	}
     _ = db.SaveCursor(ctx, cursorKey, now.Format(time.RFC3339Nano))
     logging.Info("ingest_once", map[string]any{"since": since, "now": now})
+    metrics.ObserveIngestDuration(start)
 	return nil
 }
 

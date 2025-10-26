@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"starseed/internal/model"
+    "starseed/internal/metrics"
     "golang.org/x/time/rate"
     "strings"
 )
@@ -483,6 +484,7 @@ func (c *HTTPClient) doWithRetry(ctx context.Context, req *http.Request) (*http.
                 if jitter > 0 {
                     wait = wait - jitter + time.Duration(time.Now().UnixNano()%int64(2*jitter))
                 }
+                metrics.APIRetries.Inc()
                 select {
                 case <-time.After(wait):
                 case <-ctx.Done():

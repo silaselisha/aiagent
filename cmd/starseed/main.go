@@ -21,9 +21,12 @@ import (
     "starseed/internal/nn"
     "starseed/internal/store/sqlitevec"
     "starseed/internal/engage"
+    "starseed/internal/metrics"
 )
 
 func main() {
+    // start metrics server if configured
+    metrics.StartServer("")
 	cmd := ""
 	if len(os.Args) > 1 {
 		cmd = os.Args[1]
@@ -47,6 +50,8 @@ func main() {
         cmdNNTrain()
     case "nn-infer":
         cmdNNInfer()
+    case "nn-train-db":
+        cmdNNTrainDB()
     case "ingest-events":
         cmdIngestEvents()
 	case "ingest-loop":
@@ -69,8 +74,11 @@ func printHelp() {
 	fmt.Println("  schedule    Show next engagement window")
     fmt.Println("  nn-train    Train NN on 15-min features")
     fmt.Println("  nn-infer    Infer with NN on 15-min features")
+    fmt.Println("  nn-train-db Train NN from SQLite windows with calibration")
     fmt.Println("  ingest-events  Fetch likes/mentions and backfill labels")
 	fmt.Println("  ingest-loop    Continuous ingestion loop (use Ctrl-C to stop)")
+    fmt.Println("Env:")
+    fmt.Println("  METRICS_ADDR   e.g., :9090 to expose /metrics")
 }
 
 func mustLoadClient(cfg config.Config) *xclient.HTTPClient {
@@ -356,6 +364,24 @@ func cmdNNInfer() {
     preds, err := nn.Infer(*bin, *modelPath, []nn.FeatureVector{fv})
     if err != nil { fmt.Println("infer error:", err); os.Exit(1) }
     if len(preds) > 0 { fmt.Printf("pred next-window reply proxy: %.3f\n", preds[0][0]) }
+}
+
+func cmdNNTrainDB() {
+    fs := flag.NewFlagSet("nn-train-db", flag.ExitOnError)
+    cfgPath := fs.String("config", "./starseed.yaml", "config path")
+    bin := fs.String("bin", "./starseed-nn/target/release/starseed-nn", "path to Rust NN binary")
+    out := fs.String("out", "./starseed_model.json", "model path")
+    hours := fs.Int("hours", 24, "train on last N hours")
+    _ = fs.Parse(os.Args[2:])
+    cfg, err := config.Load(*cfgPath)
+    if err != nil { fmt.Println("error:", err); os.Exit(1) }
+    db, err := sqlitevec.Open(cfg.Storage.DBPath)
+    if err != nil { fmt.Println("db error:", err); os.Exit(1) }
+    defer db.Close()
+    end := time.Now().UTC()
+    start := end.Add(-time.Duration(*hours) * time.Hour)
+    if err := nn.TrainFromDB(context.Background(), db, start, end, *bin, *out); err != nil { fmt.Println("train-db error:", err); os.Exit(1) }
+    fmt.Println("Model written to:", *out)
 }
 
 func parseHours(s string) []int {
