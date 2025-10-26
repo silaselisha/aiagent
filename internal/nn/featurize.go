@@ -61,6 +61,9 @@ func BuildFeatures(windowStart time.Time, tweets []model.Tweet, events []model.E
     x = append(x, float32(math.Sin(angle)))
     x = append(x, float32(math.Cos(angle)))
 
+    // Reserve space for meta features [relMean, relVar, botLow, botMid, botHigh]
+    x = append(x, 0, 0, 0, 0, 0)
+
     // Targets: next-window desired engagement proxy (e.g., replies we aim to elicit)
 	var futureReplies int
 	for _, e := range events {
