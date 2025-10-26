@@ -1,0 +1,22 @@
+services:
+  starseed:
+    build: .
+    image: starseed:latest
+    container_name: starseed
+    restart: unless-stopped
+    environment:
+      - X_BEARER_TOKEN=${X_BEARER_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - X_API_RPS=2
+      - X_API_BURST=10
+      - X_API_MAX_ATTEMPTS=5
+      - X_API_BASE_BACKOFF_MS=500
+    volumes:
+      - ./data:/data
+    command: ["ingest-loop", "-config", "/app/starseed.yaml", "-horizon", "6h", "-interval", "5m"]
+    healthcheck:
+      test: ["CMD", "sh", "-c", "test -f /data/starseed.db"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
