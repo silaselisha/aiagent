@@ -29,3 +29,16 @@ func TestShouldAllowEngageRespectsBudgets(t *testing.T) {
 	ok, _ = ShouldAllowEngage(ctx, db, cfg, now.Add(70*time.Minute))
 	if ok { t.Fatalf("expected blocked by daily budget") }
 }
+
+func TestPerTypeBudgets(t *testing.T) {
+    db, _ := sqlitevec.Open(":memory:")
+    defer db.Close()
+    ctx := context.Background()
+    now := time.Date(2025,1,1,12,0,0,0,time.UTC)
+    cfg := config.EngagementConfig{PerType: map[string]config.ActionBudget{"reply": {MaxPerHour: 1, MaxPerDay: 2}}}
+    ok, _ := ShouldAllowByType(ctx, db, cfg, "reply", now)
+    if !ok { t.Fatalf("expected allowed") }
+    _ = RecordByType(ctx, db, "reply", now)
+    ok, _ = ShouldAllowByType(ctx, db, cfg, "reply", now.Add(10*time.Minute))
+    if ok { t.Fatalf("expected blocked by per-hour budget") }
+}

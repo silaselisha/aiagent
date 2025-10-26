@@ -58,6 +58,13 @@ type EngagementConfig struct {
 	MaxPerDay  int `yaml:"maxPerDay"`
 	// Quiet hours (UTC) to avoid low-quality time windows
 	QuietHours []int `yaml:"quietHours"`
+    // Per action-type budgets (e.g., reply/like/follow)
+    PerType map[string]ActionBudget `yaml:"perType"`
+}
+
+type ActionBudget struct {
+    MaxPerHour int `yaml:"maxPerHour"`
+    MaxPerDay  int `yaml:"maxPerDay"`
 }
 
 type LLMConfig struct {
@@ -82,7 +89,7 @@ func Default() Config {
 			Weights:  map[string]float64{"golang": 1.2, "LLM": 1.0, "kubernetes": 0.9},
 		},
 		Filters: FiltersConfig{MinOrganicScore: 0.55, MaxBotLikelihood: 0.35, Languages: []string{"en"}},
-		Engagement: EngagementConfig{MaxPerHour: 6, MaxPerDay: 40, QuietHours: []int{0, 1, 2, 3, 4, 5}},
+        Engagement: EngagementConfig{MaxPerHour: 6, MaxPerDay: 40, QuietHours: []int{0, 1, 2, 3, 4, 5}, PerType: map[string]ActionBudget{"reply": {MaxPerHour: 25, MaxPerDay: 150}, "like": {MaxPerHour: 60, MaxPerDay: 400}}},
 		LLM:       LLMConfig{Provider: "none", Model: "gpt-4o-mini", APIKey: ""},
         Storage:  StorageConfig{DBPath: "./starseed.db"},
 	}
