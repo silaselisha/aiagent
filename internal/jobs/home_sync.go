@@ -6,12 +6,13 @@ import (
     "starseed/internal/config"
     "starseed/internal/store/sqlitevec"
     "starseed/internal/xclient"
+    "starseed/internal/model"
 )
 
 const homeCursorKey = "home_timeline:since_id"
 
 // homeGetter abstracts v1.1 home paging.
-type homeGetter interface { GetHomeTimelineSince(ctx context.Context, sinceID string, limit int) ([]xclient.ModelTweet, error) }
+type homeGetter interface { GetHomeTimelineSince(ctx context.Context, sinceID string, limit int) ([]model.Tweet, error) }
 
 // SyncHomeTimeline pages v1.1 home timeline using since_id and stores events idempotently.
 func SyncHomeTimeline(ctx context.Context, db *sqlitevec.DB, getter homeGetter, cfg config.Config, perPage int, pages int) error {
