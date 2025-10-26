@@ -23,14 +23,14 @@ var (
 		Help:    "Ingestion duration seconds",
 		Buckets: prometheus.DefBuckets,
 	})
-	APIRetries = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "starseed_api_retries_total",
-		Help: "Total API retry attempts",
-	})
+    APIRetries = prometheus.NewCounterVec(prometheus.CounterOpts{
+        Name: "starseed_api_retries_total",
+        Help: "Total API retry attempts",
+    }, []string{"endpoint"})
 )
 
 func init() {
-	prometheus.MustRegister(IngestRuns, IngestErrors, IngestDuration, APIRetries)
+    prometheus.MustRegister(IngestRuns, IngestErrors, IngestDuration, APIRetries)
 }
 
 // StartServer starts a metrics HTTP server on addr (e.g., ":9090").
@@ -41,7 +41,8 @@ func StartServer(addr string) {
 	if addr == "" {
 		return
 	}
-	http.Handle("/metrics", promhttp.Handler())
+    http.Handle("/metrics", promhttp.Handler())
+    http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request){ w.WriteHeader(http.StatusOK) })
 	go func() { _ = http.ListenAndServe(addr, nil) }()
 }
 
@@ -50,3 +51,6 @@ func ObserveIngestDuration(start time.Time) {
 	d := time.Since(start).Seconds()
 	IngestDuration.Observe(d)
 }
+
+// IncAPIRetry increments the retry counter for an endpoint.
+func IncAPIRetry(endpoint string) { APIRetries.WithLabelValues(endpoint).Inc() }

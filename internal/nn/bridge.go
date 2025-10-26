@@ -53,6 +53,16 @@ func TrainWithOptions(binaryPath, outPath string, samples []FeatureVector, opts 
     return nil
 }
 
+// LoadThresholdFromModel reads threshold from saved model JSON file.
+func LoadThresholdFromModel(modelPath string) float32 {
+    var tmp struct{ Threshold float32 `json:"threshold"` }
+    // Attempt to read file
+    out, err := exec.Command("bash", "-lc", fmt.Sprintf("cat %q", modelPath)).Output()
+    if err != nil { return 0 }
+    if err := json.Unmarshal(out, &tmp); err != nil { return 0 }
+    return tmp.Threshold
+}
+
 // Infer calls the Rust binary to get predictions for samples.
 func Infer(binaryPath, modelPath string, samples []FeatureVector) ([][]float32, error) {
 	var buf bytes.Buffer

@@ -484,7 +484,7 @@ func (c *HTTPClient) doWithRetry(ctx context.Context, req *http.Request) (*http.
                 if jitter > 0 {
                     wait = wait - jitter + time.Duration(time.Now().UnixNano()%int64(2*jitter))
                 }
-                metrics.APIRetries.Inc()
+                metrics.IncAPIRetry(req.URL.Path)
                 select {
                 case <-time.After(wait):
                 case <-ctx.Done():

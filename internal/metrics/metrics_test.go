@@ -13,7 +13,7 @@ import (
 func TestMetricsExposure(t *testing.T) {
 	IngestRuns.Inc()
 	IngestErrors.Inc()
-	APIRetries.Inc()
+    IncAPIRetry("/test")
 	ObserveIngestDuration(time.Now().Add(-1500 * time.Millisecond))
 
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
