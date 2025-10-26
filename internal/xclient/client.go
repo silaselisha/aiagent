@@ -22,10 +22,13 @@ type XClient interface {
 	GetHomeTimeline(ctx context.Context, userID string, limit int) ([]model.Tweet, error)
 	GetFollowing(ctx context.Context, userID string, limit int) ([]model.User, error)
     SearchRecentTweets(ctx context.Context, query string, limit int) ([]model.Tweet, error)
+    SearchRecentTweetsSince(ctx context.Context, query string, limit int, start time.Time) ([]model.Tweet, error)
     GetUserTweets(ctx context.Context, userID string, limit int) ([]model.Tweet, error)
     GetUsersByIDs(ctx context.Context, ids []string) ([]model.User, error)
     GetLikedTweets(ctx context.Context, userID string, limit int) ([]model.Tweet, error)
     GetMentions(ctx context.Context, userID string, limit int) ([]model.Tweet, error)
+    GetRetweetedTweets(ctx context.Context, userID string, limit int) ([]model.Tweet, error)
+    GetUserReplies(ctx context.Context, userID string, limit int) ([]model.Tweet, error)
 }
 
 // HTTPClient is a simple bearer-token client for X API v2.
@@ -120,6 +123,49 @@ func (c *HTTPClient) GetHomeTimeline(ctx context.Context, userID string, limit i
 func (c *HTTPClient) SearchRecentTweets(ctx context.Context, query string, limit int) ([]model.Tweet, error) {
     u := fmt.Sprintf("%s/tweets/search/recent?max_results=%d&tweet.fields=created_at,public_metrics,lang,author_id&query=%s",
         c.baseURL, clamp(limit, 10, 100), url.QueryEscape(query))
+    req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+    c.auth(req)
+    if err := c.limiter.Wait(ctx); err != nil { return nil, err }
+    resp, err := c.doWithRetry(ctx, req)
+    if err != nil { return nil, err }
+    defer resp.Body.Close()
+    if resp.StatusCode >= 400 { return nil, fmt.Errorf("x api status %d", resp.StatusCode) }
+    var raw struct {
+        Data []struct{
+            ID string `json:"id"`
+            Text string `json:"text"`
+            CreatedAt time.Time `json:"created_at"`
+            Lang string `json:"lang"`
+            AuthorID string `json:"author_id"`
+            PublicMetrics struct{
+                LikeCount int `json:"like_count"`
+                ReplyCount int `json:"reply_count"`
+                RetweetCount int `json:"retweet_count"`
+                QuoteCount int `json:"quote_count"`
+            } `json:"public_metrics"`
+        } `json:"data"`
+    }
+    if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil { return nil, err }
+    out := make([]model.Tweet, 0, len(raw.Data))
+    for _, d := range raw.Data {
+        out = append(out, model.Tweet{
+            ID: d.ID,
+            Text: d.Text,
+            CreatedAt: d.CreatedAt,
+            Language: d.Lang,
+            AuthorID: d.AuthorID,
+            LikeCount: d.PublicMetrics.LikeCount,
+            ReplyCount: d.PublicMetrics.ReplyCount,
+            RetweetCount: d.PublicMetrics.RetweetCount,
+            QuoteCount: d.PublicMetrics.QuoteCount,
+        })
+    }
+    return out, nil
+}
+
+func (c *HTTPClient) SearchRecentTweetsSince(ctx context.Context, query string, limit int, start time.Time) ([]model.Tweet, error) {
+    u := fmt.Sprintf("%s/tweets/search/recent?start_time=%s&max_results=%d&tweet.fields=created_at,public_metrics,lang,author_id&query=%s",
+        c.baseURL, url.QueryEscape(start.Format(time.RFC3339)), clamp(limit, 10, 100), url.QueryEscape(query))
     req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
     c.auth(req)
     if err := c.limiter.Wait(ctx); err != nil { return nil, err }
