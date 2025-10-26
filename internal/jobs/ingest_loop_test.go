@@ -32,6 +32,7 @@ func (fx) GetMentions(ctx context.Context, userID string, limit int) ([]model.Tw
     // Emit a mention within the next window relative to ws used in test: now-10m
     return []model.Tweet{{ID: "t1", AuthorID: "a1", CreatedAt: time.Now().UTC().Add(-10 * time.Minute)}}, nil
 }
+func (fx) GetQuoteTweets(ctx context.Context, tweetID string, limit int) ([]model.Tweet, error) { return nil, nil }
 
 func TestRunIngestionOnce_AdvancesCursorAndLabels(t *testing.T) {
     db, err := sqlitevec.Open(":memory:")
