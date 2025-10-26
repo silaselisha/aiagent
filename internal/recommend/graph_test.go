@@ -47,7 +47,11 @@ func TestRankGraphBoosts(t *testing.T) {
     _ = db.PutEvent(ctx, now.Add(-1*time.Hour), "reply", map[string]any{"author_id":"a"})
     users := []model.User{{ID:"a", Username:"a"}, {ID:"b", Username:"b"}}
     seed := []model.User{{ID:"seed", Username:"seed"}}
-    recs := RankGraph(ctx, db, users, seed, []string{"golang"}, map[string]float64{"golang":1})
+    // Precompute hop/mutual stats to control calibration
+    hop := map[string]int{"a":1, "b":2}
+    mutual := map[string]int{"a":2, "b":0}
+    params := GraphParams{MaxDepth:2, HopWeight:0.2, MutualWeight:0.1, InteractionWeight:0.05}
+    recs := RankGraphCalibrated(ctx, db, params, users, seed, []string{"golang"}, map[string]float64{"golang":1}, hop, mutual)
     if len(recs) < 2 { t.Fatalf("need at least two recs") }
     if recs[0].User.ID != "a" { t.Fatalf("expected 'a' boosted to top, got %s", recs[0].User.ID) }
 }

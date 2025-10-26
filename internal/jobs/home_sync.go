@@ -5,7 +5,6 @@ import (
 
     "starseed/internal/config"
     "starseed/internal/store/sqlitevec"
-    "starseed/internal/xclient"
     "starseed/internal/model"
 )
 
