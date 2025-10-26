@@ -10,14 +10,17 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/starseed ./cmd/starseed
 
 # ----------- builder: rust -----------
-FROM rust:1.82 AS rust-builder
+FROM rust:1.82-alpine AS rust-builder
 WORKDIR /src
 COPY starseed-nn/ ./starseed-nn/
 WORKDIR /src/starseed-nn
-RUN cargo build --release && install -m 0755 target/release/starseed-nn /out/starseed-nn
+RUN apk add --no-cache musl-dev && \
+    rustup target add x86_64-unknown-linux-musl && \
+    cargo build --release --target x86_64-unknown-linux-musl && \
+    install -m 0755 target/x86_64-unknown-linux-musl/release/starseed-nn /out/starseed-nn
 
 # ----------- runner -----------
-FROM gcr.io/distroless/base-debian12:nonroot
+FROM gcr.io/distroless/static:nonroot
 WORKDIR /app
 COPY --from=go-builder /out/starseed /usr/local/bin/starseed
 COPY --from=rust-builder /out/starseed-nn /usr/local/bin/starseed-nn
