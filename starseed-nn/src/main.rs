@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use rand::prelude::*;
+use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{self, Read};
@@ -25,6 +26,14 @@ enum Commands {
         epochs: usize,
         #[arg(long, default_value_t = 0.01)]
         lr: f32,
+        #[arg(long, default_value_t = 0.2)]
+        val_split: f32,
+        #[arg(long, default_value_t = 3)]
+        patience: usize,
+        #[arg(long)]
+        checkpoint: Option<String>,
+        #[arg(long, default_value_t = true)]
+        calibrate: bool,
     },
     /// Infer predictions for 15-min window features
     Infer {
@@ -130,20 +139,103 @@ fn read_jsonl(path: &Option<String>) -> io::Result<Vec<Sample>> {
 }
 
 #[derive(Serialize, Deserialize)]
-struct ModelFile { input: usize, hidden: usize, output: usize, mlp: MLP }
+struct ModelFile { input: usize, hidden: usize, output: usize, mlp: MLP, threshold: f32 }
+
+fn mse(mlp: &MLP, data: &[Sample]) -> f32 {
+    if data.is_empty() { return 0.0; }
+    let mut sum = 0.0f32;
+    for s in data {
+        let (_, y) = mlp.forward(&s.x);
+        for k in 0..y.len() {
+            let diff = y[k] - s.y[k];
+            sum += diff * diff;
+        }
+    }
+    sum / (data.len() as f32)
+}
+
+fn best_threshold_f1(mlp: &MLP, data: &[Sample]) -> (f32, f32) {
+    if data.is_empty() { return (0.0, 0.0); }
+    // collect predictions and binary labels (y>0 => positive)
+    let mut preds: Vec<f32> = Vec::with_capacity(data.len());
+    let mut labels: Vec<i32> = Vec::with_capacity(data.len());
+    let mut min_p = f32::MAX;
+    let mut max_p = f32::MIN;
+    for s in data {
+        let (_, y) = mlp.forward(&s.x);
+        let p = y[0];
+        preds.push(p);
+        labels.push(if s.y[0] > 0.0 { 1 } else { 0 });
+        if p < min_p { min_p = p; }
+        if p > max_p { max_p = p; }
+    }
+    if (max_p - min_p).abs() < 1e-6 { return (min_p, 0.0); }
+    let mut best_t = min_p;
+    let mut best_f1 = 0.0f32;
+    // scan thresholds across 50 steps
+    let steps = 50;
+    for i in 0..=steps {
+        let t = min_p + (max_p - min_p) * (i as f32) / (steps as f32);
+        let mut tp = 0; let mut fp = 0; let mut fn_ = 0;
+        for idx in 0..preds.len() {
+            let pred_pos = preds[idx] >= t;
+            let label_pos = labels[idx] == 1;
+            match (pred_pos, label_pos) {
+                (true, true) => tp += 1,
+                (true, false) => fp += 1,
+                (false, true) => fn_ += 1,
+                _ => {}
+            }
+        }
+        let precision = if tp + fp > 0 { tp as f32 / (tp + fp) as f32 } else { 0.0 };
+        let recall = if tp + fn_ > 0 { tp as f32 / (tp + fn_) as f32 } else { 0.0 };
+        let f1 = if precision + recall > 0.0 { 2.0 * precision * recall / (precision + recall) } else { 0.0 };
+        if f1 > best_f1 { best_f1 = f1; best_t = t; }
+    }
+    (best_t, best_f1)
+}
 
 fn main() -> io::Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Train { out, data, hidden, epochs, lr } => {
+        Commands::Train { out, data, hidden, epochs, lr, val_split, patience, checkpoint, calibrate } => {
             let samples = read_jsonl(&data)?;
             if samples.is_empty() { return Err(io::Error::new(io::ErrorKind::InvalidInput, "no samples")); }
             let input = samples[0].x.len();
             let output = samples[0].y.len();
             let mut rng = rand::thread_rng();
+            let mut data_shuf = samples.clone();
+            data_shuf.shuffle(&mut rng);
+            let vsz = ((data_shuf.len() as f32) * val_split).round() as usize;
+            let vsz = vsz.min(data_shuf.len().saturating_sub(1));
+            let (val_set, train_set) = data_shuf.split_at(vsz);
             let mut mlp = MLP::new(input, hidden, output, &mut rng);
-            for _ in 0..epochs { mlp.train_epoch(&samples, lr); }
-            let mf = ModelFile { input, hidden, output, mlp };
+            let mut best_mlp = mlp.clone();
+            let mut best_loss = f32::INFINITY;
+            let mut bad_epochs = 0usize;
+            let ckpt = checkpoint.unwrap_or_else(|| out.clone());
+            for _e in 0..epochs {
+                mlp.train_epoch(train_set, lr);
+                let val_loss = mse(&mlp, val_set);
+                if val_loss + 1e-6 < best_loss {
+                    best_loss = val_loss;
+                    best_mlp = mlp.clone();
+                    bad_epochs = 0;
+                    // save checkpoint
+                    let mf_ck = ModelFile { input, hidden, output, mlp: best_mlp.clone(), threshold: 0.0 };
+                    fs::write(&ckpt, serde_json::to_vec(&mf_ck).unwrap())?;
+                } else {
+                    bad_epochs += 1;
+                    if bad_epochs >= patience { break; }
+                }
+            }
+            // calibration threshold on validation set
+            let mut threshold = 0.0f32;
+            if calibrate {
+                let (t, _f1) = best_threshold_f1(&best_mlp, val_set);
+                threshold = t;
+            }
+            let mf = ModelFile { input, hidden, output, mlp: best_mlp, threshold };
             fs::write(out, serde_json::to_vec(&mf).unwrap())?;
         }
         Commands::Infer { model, data } => {

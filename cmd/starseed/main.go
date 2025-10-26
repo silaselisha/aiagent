@@ -19,6 +19,7 @@ import (
     "starseed/internal/ingest"
     "starseed/internal/nn"
     "starseed/internal/store/sqlitevec"
+    "starseed/internal/engage"
 )
 
 func main() {
@@ -171,10 +172,26 @@ func cmdEngage() {
         upgraded, err := suggest.DraftWithLLM(ctx, cfg.LLM, sugs[i].Tweet.Text, sugs[i].Text)
         if err == nil && upgraded != "" { sugs[i].Text = upgraded }
     }
-	for _, s := range sugs {
+    // Gate by calibrated threshold if model is present
+    thr := engage.LoadThreshold("./starseed_model.json")
+    if thr > 0 {
+        // Build feature for now window and infer
+        db, _ := sqlitevec.Open(cfg.Storage.DBPath)
+        if db != nil { defer db.Close() }
+        fv, _ := nn.BuildFeaturesWithHistory(ctx, db, now.Add(-15*time.Minute), tweetsToModel(tweets), nil)
+        preds, _ := nn.Infer("./starseed-nn/target/release/starseed-nn", "./starseed_model.json", []nn.FeatureVector{fv})
+        if !engage.ShouldEngage(ctx, thr, preds) {
+            fmt.Println("Below threshold; skipping engagement suggestions.")
+            return
+        }
+    }
+    for _, s := range sugs {
 		fmt.Printf("when=%s why=%s\n%s\n---\n", s.When.Format(time.RFC3339), s.Why, s.Text)
 	}
 }
+
+// tweetsToModel converts []model.Tweet to []model.Tweet (pass-through helper for clarity)
+func tweetsToModel(ts []model.Tweet) []model.Tweet { return ts }
 
 func cmdMonitor() {
 	fs := flag.NewFlagSet("monitor", flag.ExitOnError)

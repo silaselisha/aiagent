@@ -17,7 +17,7 @@ func Train(binaryPath, outPath string, samples []FeatureVector, hidden, epochs i
 		if err := enc.Encode(s); err != nil { return err }
 	}
 	_ = w.Flush()
-	cmd := exec.Command(binaryPath, "train", "--out", outPath, "--hidden", fmt.Sprint(hidden), "--epochs", fmt.Sprint(epochs), "--lr", fmt.Sprint(lr))
+    cmd := exec.Command(binaryPath, "train", "--out", outPath, "--hidden", fmt.Sprint(hidden), "--epochs", fmt.Sprint(epochs), "--lr", fmt.Sprint(lr))
 	cmd.Stdin = &buf
 	out, err := cmd.CombinedOutput()
 	if err != nil { return fmt.Errorf("train error: %v: %s", err, string(out)) }
