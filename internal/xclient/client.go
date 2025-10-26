@@ -27,8 +27,6 @@ type XClient interface {
     GetUsersByIDs(ctx context.Context, ids []string) ([]model.User, error)
     GetLikedTweets(ctx context.Context, userID string, limit int) ([]model.Tweet, error)
     GetMentions(ctx context.Context, userID string, limit int) ([]model.Tweet, error)
-    GetRetweetedTweets(ctx context.Context, userID string, limit int) ([]model.Tweet, error)
-    GetUserReplies(ctx context.Context, userID string, limit int) ([]model.Tweet, error)
 }
 
 // HTTPClient is a simple bearer-token client for X API v2.

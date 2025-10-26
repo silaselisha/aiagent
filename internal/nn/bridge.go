@@ -24,6 +24,35 @@ func Train(binaryPath, outPath string, samples []FeatureVector, hidden, epochs i
 	return nil
 }
 
+type TrainOptions struct {
+    Hidden     int
+    Epochs     int
+    LR         float32
+    ValSplit   float32
+    Patience   int
+    Calibrate  bool
+    Checkpoint string
+}
+
+// TrainWithOptions calls the Rust trainer with advanced options.
+func TrainWithOptions(binaryPath, outPath string, samples []FeatureVector, opts TrainOptions) error {
+    var buf bytes.Buffer
+    w := bufio.NewWriter(&buf)
+    enc := json.NewEncoder(w)
+    for _, s := range samples {
+        if err := enc.Encode(s); err != nil { return err }
+    }
+    _ = w.Flush()
+    args := []string{"train", "--out", outPath, "--hidden", fmt.Sprint(opts.Hidden), "--epochs", fmt.Sprint(opts.Epochs), "--lr", fmt.Sprint(opts.LR), "--val-split", fmt.Sprint(opts.ValSplit), "--patience", fmt.Sprint(opts.Patience)}
+    if opts.Checkpoint != "" { args = append(args, "--checkpoint", opts.Checkpoint) }
+    if opts.Calibrate { args = append(args, "--calibrate") }
+    cmd := exec.Command(binaryPath, args...)
+    cmd.Stdin = &buf
+    out, err := cmd.CombinedOutput()
+    if err != nil { return fmt.Errorf("train error: %v: %s", err, string(out)) }
+    return nil
+}
+
 // Infer calls the Rust binary to get predictions for samples.
 func Infer(binaryPath, modelPath string, samples []FeatureVector) ([][]float32, error) {
 	var buf bytes.Buffer
