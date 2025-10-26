@@ -26,9 +26,14 @@ type AccountConfig struct {
 
 type CredentialsConfig struct {
 	// X/Twitter API bearer token. If empty, read from env X_BEARER_TOKEN
-	BearerToken string `yaml:"bearerToken"`
+    BearerToken string `yaml:"bearerToken"`
     // User-auth token for write actions (follow/like/etc). If empty, read X_USER_TOKEN
     UserToken   string `yaml:"userToken"`
+    // OAuth1.0a credentials for v1.1 timelines
+    ConsumerKey    string `yaml:"consumerKey"`
+    ConsumerSecret string `yaml:"consumerSecret"`
+    AccessToken    string `yaml:"accessToken"`
+    AccessSecret   string `yaml:"accessSecret"`
 }
 
 type InterestsConfig struct {
@@ -90,6 +95,18 @@ func (c *Config) ResolveEnv() {
 	}
     if c.Credentials.UserToken == "" {
         c.Credentials.UserToken = os.Getenv("X_USER_TOKEN")
+    }
+    if c.Credentials.ConsumerKey == "" {
+        c.Credentials.ConsumerKey = os.Getenv("X_CONSUMER_KEY")
+    }
+    if c.Credentials.ConsumerSecret == "" {
+        c.Credentials.ConsumerSecret = os.Getenv("X_CONSUMER_SECRET")
+    }
+    if c.Credentials.AccessToken == "" {
+        c.Credentials.AccessToken = os.Getenv("X_ACCESS_TOKEN")
+    }
+    if c.Credentials.AccessSecret == "" {
+        c.Credentials.AccessSecret = os.Getenv("X_ACCESS_SECRET")
     }
 	if c.LLM.APIKey == "" && c.LLM.Provider == "openai" {
 		c.LLM.APIKey = os.Getenv("OPENAI_API_KEY")
