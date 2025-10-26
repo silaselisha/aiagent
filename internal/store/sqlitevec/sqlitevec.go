@@ -109,6 +109,13 @@ func (d *DB) PutEvent(ctx context.Context, ts time.Time, typ string, payload any
 	return err
 }
 
+// PutEventRef stores an event with a reference id for idempotency (type, ref_id unique).
+func (d *DB) PutEventRef(ctx context.Context, ts time.Time, typ, refID string, payload any) error {
+    pb, _ := json.Marshal(payload)
+    _, err := d.sql.ExecContext(ctx, `INSERT OR IGNORE INTO events(ts, type, ref_id, payload) VALUES(?,?,?,?)`, ts.Unix(), typ, refID, string(pb))
+    return err
+}
+
 // Event is a stored engagement event
 type Event struct { TS time.Time; Type string; Payload string }
 

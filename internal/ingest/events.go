@@ -20,7 +20,7 @@ func IngestEngagements(ctx context.Context, db *sqlitevec.DB, client xclient.XCl
     if likes, err := client.GetLikedTweets(ctx, userID, 100); err == nil {
         for _, t := range likes {
             if t.CreatedAt.Before(likesSince) { continue }
-            _ = db.PutEvent(ctx, t.CreatedAt, "like", map[string]any{"tweet_id": t.ID, "author_id": t.AuthorID})
+            _ = db.PutEventRef(ctx, t.CreatedAt, "like", t.ID, map[string]any{"tweet_id": t.ID, "author_id": t.AuthorID})
         }
     }
     _ = db.SaveCursor(ctx, "ingest:likes_since", now.Format(time.RFC3339Nano))
@@ -35,7 +35,7 @@ func IngestEngagements(ctx context.Context, db *sqlitevec.DB, client xclient.XCl
         if replies, err := client.SearchRecentTweetsSince(ctx, q, 100, repliesSince); err == nil {
             for _, t := range replies {
                 if t.CreatedAt.Before(repliesSince) { continue }
-                _ = db.PutEvent(ctx, t.CreatedAt, "reply", map[string]any{"tweet_id": t.ID, "author_id": t.AuthorID})
+                _ = db.PutEventRef(ctx, t.CreatedAt, "reply", t.ID, map[string]any{"tweet_id": t.ID, "author_id": t.AuthorID})
             }
         }
         _ = db.SaveCursor(ctx, "ingest:replies_since", now.Format(time.RFC3339Nano))
@@ -51,7 +51,7 @@ func IngestEngagements(ctx context.Context, db *sqlitevec.DB, client xclient.XCl
         if rts, err := client.SearchRecentTweetsSince(ctx, q, 100, rtSince); err == nil {
             for _, t := range rts {
                 if t.CreatedAt.Before(rtSince) { continue }
-                _ = db.PutEvent(ctx, t.CreatedAt, "retweet", map[string]any{"tweet_id": t.ID, "author_id": t.AuthorID})
+                _ = db.PutEventRef(ctx, t.CreatedAt, "retweet", t.ID, map[string]any{"tweet_id": t.ID, "author_id": t.AuthorID})
             }
         }
         _ = db.SaveCursor(ctx, "ingest:retweets_since", now.Format(time.RFC3339Nano))
@@ -68,7 +68,7 @@ func IngestEngagements(ctx context.Context, db *sqlitevec.DB, client xclient.XCl
                 if quotes, err := client.GetQuoteTweets(ctx, orig.ID, 50); err == nil {
                     for _, qt := range quotes {
                         if qt.CreatedAt.Before(qtSince) { continue }
-                        _ = db.PutEvent(ctx, qt.CreatedAt, "quote", map[string]any{"tweet_id": qt.ID, "author_id": qt.AuthorID, "target_id": orig.ID})
+                        _ = db.PutEventRef(ctx, qt.CreatedAt, "quote", qt.ID, map[string]any{"tweet_id": qt.ID, "author_id": qt.AuthorID, "target_id": orig.ID})
                     }
                 }
             }
