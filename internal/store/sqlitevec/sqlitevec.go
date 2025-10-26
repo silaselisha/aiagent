@@ -40,7 +40,9 @@ func (d *DB) migrate() error {
 	  id INTEGER PRIMARY KEY AUTOINCREMENT,
 	  ts INTEGER NOT NULL,
 	  type TEXT NOT NULL,
-	  payload TEXT
+	  ref_id TEXT,
+	  payload TEXT,
+	  UNIQUE(type, ref_id)
 	);
 	CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 	CREATE TABLE IF NOT EXISTS calibration (
