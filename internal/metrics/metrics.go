@@ -27,10 +27,18 @@ var (
         Name: "starseed_api_retries_total",
         Help: "Total API retry attempts",
     }, []string{"endpoint"})
+    CommandRuns = prometheus.NewCounterVec(prometheus.CounterOpts{
+        Name: "starseed_command_runs_total",
+        Help: "Total command runs",
+    }, []string{"command"})
+    CommandErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
+        Name: "starseed_command_errors_total",
+        Help: "Total command errors",
+    }, []string{"command"})
 )
 
 func init() {
-    prometheus.MustRegister(IngestRuns, IngestErrors, IngestDuration, APIRetries)
+    prometheus.MustRegister(IngestRuns, IngestErrors, IngestDuration, APIRetries, CommandRuns, CommandErrors)
 }
 
 // StartServer starts a metrics HTTP server on addr (e.g., ":9090").
@@ -54,3 +62,6 @@ func ObserveIngestDuration(start time.Time) {
 
 // IncAPIRetry increments the retry counter for an endpoint.
 func IncAPIRetry(endpoint string) { APIRetries.WithLabelValues(endpoint).Inc() }
+
+func IncCommandRun(cmd string)   { CommandRuns.WithLabelValues(cmd).Inc() }
+func IncCommandError(cmd string) { CommandErrors.WithLabelValues(cmd).Inc() }
