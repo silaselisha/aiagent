@@ -208,6 +208,10 @@ func cmdEngage() {
             fmt.Println("Below threshold; skipping engagement suggestions.")
             return
         }
+        // Also check budgets
+        ok, _ := engage.ShouldAllowEngage(ctx, db, cfg.Engagement, now)
+        if !ok { fmt.Println("Budget exceeded; skipping engagement suggestions."); return }
+        _ = engage.RecordEngage(ctx, db, now)
     }
     for _, s := range sugs {
 		fmt.Printf("when=%s why=%s\n%s\n---\n", s.When.Format(time.RFC3339), s.Why, s.Text)

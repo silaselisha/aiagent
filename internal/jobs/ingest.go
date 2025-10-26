@@ -8,6 +8,7 @@ import (
 	"starseed/internal/ingest"
 	"starseed/internal/store/sqlitevec"
 	"starseed/internal/xclient"
+    "starseed/internal/logging"
 )
 
 const cursorKey = "ingest:last_ts"
@@ -31,22 +32,26 @@ func RunIngestionOnce(ctx context.Context, db *sqlitevec.DB, client xclient.XCli
 	if err := ingest.BackfillLabels(ctx, db, since, now); err != nil {
 		return err
 	}
-	_ = db.SaveCursor(ctx, cursorKey, now.Format(time.RFC3339Nano))
+    _ = db.SaveCursor(ctx, cursorKey, now.Format(time.RFC3339Nano))
+    logging.Info("ingest_once", map[string]any{"since": since, "now": now})
 	return nil
 }
 
 // RunIngestionLoop runs RunIngestionOnce on a ticker until ctx is cancelled.
 func RunIngestionLoop(ctx context.Context, db *sqlitevec.DB, client xclient.XClient, cfg config.Config, horizon, interval time.Duration) error {
-	t := time.NewTicker(interval)
+    t := time.NewTicker(interval)
 	defer t.Stop()
 	// run immediately
-	_ = RunIngestionOnce(ctx, db, client, cfg, horizon)
+    _ = RunIngestionOnce(ctx, db, client, cfg, horizon)
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+            logging.Info("ingest_loop_stop", nil)
+            return ctx.Err()
 		case <-t.C:
-			_ = RunIngestionOnce(ctx, db, client, cfg, horizon)
+            if err := RunIngestionOnce(ctx, db, client, cfg, horizon); err != nil {
+                logging.Error("ingest_once_error", map[string]any{"error": err.Error()})
+            }
 		}
 	}
 }
