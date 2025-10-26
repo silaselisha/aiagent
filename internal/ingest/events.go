@@ -20,7 +20,8 @@ func IngestEngagements(ctx context.Context, db *sqlitevec.DB, client xclient.XCl
 	mentions, err := client.GetMentions(ctx, userID, 100)
 	if err == nil {
 		for _, t := range mentions {
-			_ = db.PutEvent(ctx, t.CreatedAt, "mention", map[string]any{"tweet_id": t.ID, "author_id": t.AuthorID})
+            // Treat mentions as replies proxy for labeling
+            _ = db.PutEvent(ctx, t.CreatedAt, "reply", map[string]any{"tweet_id": t.ID, "author_id": t.AuthorID})
 		}
 	}
 	return nil
