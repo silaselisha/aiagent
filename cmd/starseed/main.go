@@ -16,6 +16,7 @@ import (
 	"starseed/internal/suggest"
 	"starseed/internal/theme"
 	"starseed/internal/xclient"
+    "starseed/internal/ingest"
 )
 
 func main() {
@@ -88,11 +89,13 @@ func cmdAnalyze() {
 	ctx := context.Background()
 	me, err := client.GetUserByUsername(ctx, cfg.Account.Username)
 	if err != nil { fmt.Println("error:", err); os.Exit(1) }
-	follows, err := client.GetFollowing(ctx, me.ID, *limit)
+    follows, err := client.GetFollowing(ctx, me.ID, *limit)
 	if err != nil { fmt.Println("error:", err); os.Exit(1) }
 	fmt.Printf("Following: %d users\n", len(follows))
-	// Timeline placeholder: would fetch and score tweets here
-	fmt.Println("Timeline analysis coming soon (API mapping)")
+    // Ingest recent tweets from followings
+    tl, err := ingest.FromFollowing(ctx, client, follows, 5, *limit)
+    if err != nil { fmt.Println("timeline error:", err) }
+    fmt.Printf("Timeline ingested: %d tweets\n", len(tl))
 }
 
 func cmdRecommend() {
@@ -107,30 +110,55 @@ func cmdRecommend() {
 	if err != nil { fmt.Println("error:", err); os.Exit(1) }
 	follows, err := client.GetFollowing(ctx, me.ID, 200)
 	if err != nil { fmt.Println("error:", err); os.Exit(1) }
-	recs := recommend.RankAccounts(follows, cfg.Interests.Keywords, cfg.Interests.Weights)
+    recs := recommend.RankAccounts(follows, cfg.Interests.Keywords, cfg.Interests.Weights)
 	for i := 0; i < len(recs) && i < 20; i++ {
 		r := recs[i]
 		fmt.Printf("@%s score=%.2f rel=%.2f bot=%.2f\n", r.User.Username, r.FinalScore, r.RelevanceScore, r.BotLikelihood)
 	}
+    // Discovery by interests
+    tweets, err := recommend.DiscoverTweetsByInterests(ctx, client, cfg, 50)
+    if err == nil {
+        fmt.Printf("Discovered %d interest-matched tweets\n", len(tweets))
+    }
 }
 
 func cmdEngage() {
 	fs := flag.NewFlagSet("engage", flag.ExitOnError)
 	cfgPath := fs.String("config", "./starseed.yaml", "config path")
+    seedFile := fs.String("seeds", "", "optional path to seed accounts file (one @handle per line)")
 	_ = fs.Parse(os.Args[2:])
 	cfg, err := config.Load(*cfgPath)
 	if err != nil { fmt.Println("error:", err); os.Exit(1) }
-	// Placeholder tweets; would come from timeline
-	now := time.Now().UTC()
-    tweets := []model.Tweet{
-        {ID: "1", Text: "Kubernetes controllers are just control loops with reconciliation.", Language: "en"},
-        {ID: "2", Text: "Golang generics removed most need for codegen in SDKs.", Language: "en"},
+    client := mustLoadClient(cfg)
+    ctx := context.Background()
+    now := time.Now().UTC()
+    // If seed file is provided, expand discovery by those users' recent tweets
+    var tweets []model.Tweet
+    if *seedFile != "" {
+        seeds, _ := readHandles(*seedFile)
+        // Resolve handles to IDs
+        for _, h := range seeds {
+            u, err := client.GetUserByUsername(ctx, h)
+            if err != nil { continue }
+            ut, err := client.GetUserTweets(ctx, u.ID, 10)
+            if err != nil { continue }
+            tweets = append(tweets, ut...)
+        }
+    } else {
+        // fallback: discover by interests
+        found, _ := recommend.DiscoverTweetsByInterests(ctx, client, cfg, 50)
+        tweets = append(tweets, found...)
     }
     sugs := suggest.HeuristicSuggest(tweets, now)
     // Respect quiet hours from config when scheduling
     qh := cfg.Engagement.QuietHours
     for i := range sugs {
         sugs[i].When = schedule.NextWindow(now, qh)
+    }
+    // Optionally upgrade with LLM
+    for i := range sugs {
+        upgraded, err := suggest.DraftWithLLM(ctx, cfg.LLM, sugs[i].Tweet.Text, sugs[i].Text)
+        if err == nil && upgraded != "" { sugs[i].Text = upgraded }
     }
 	for _, s := range sugs {
 		fmt.Printf("when=%s why=%s\n%s\n---\n", s.When.Format(time.RFC3339), s.Why, s.Text)
@@ -184,6 +212,30 @@ func splitAndTrim(s string) []string {
 	}
 	if cur != "" { out = append(out, cur) }
 	return out
+}
+
+func readHandles(path string) ([]string, error) {
+    b, err := os.ReadFile(path)
+    if err != nil { return nil, err }
+    lines := splitLines(string(b))
+    var out []string
+    for _, l := range lines {
+        if l == "" { continue }
+        if l[0] == '@' { l = l[1:] }
+        out = append(out, l)
+    }
+    return out, nil
+}
+
+func splitLines(s string) []string {
+    var out []string
+    cur := ""
+    for _, r := range s {
+        if r == '\n' || r == '\r' { if cur != "" { out = append(out, cur); cur = "" }; continue }
+        cur += string(r)
+    }
+    if cur != "" { out = append(out, cur) }
+    return out
 }
 
 func scheduleNext(q []int) time.Time {
