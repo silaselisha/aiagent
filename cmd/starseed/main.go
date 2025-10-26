@@ -17,6 +17,7 @@ import (
 	"starseed/internal/theme"
 	"starseed/internal/xclient"
     "starseed/internal/ingest"
+	"starseed/internal/jobs"
     "starseed/internal/nn"
     "starseed/internal/store/sqlitevec"
     "starseed/internal/engage"
@@ -48,6 +49,8 @@ func main() {
         cmdNNInfer()
     case "ingest-events":
         cmdIngestEvents()
+	case "ingest-loop":
+		cmdIngestLoop()
 	default:
 		printHelp()
 	}
@@ -67,6 +70,7 @@ func printHelp() {
     fmt.Println("  nn-train    Train NN on 15-min features")
     fmt.Println("  nn-infer    Infer with NN on 15-min features")
     fmt.Println("  ingest-events  Fetch likes/mentions and backfill labels")
+	fmt.Println("  ingest-loop    Continuous ingestion loop (use Ctrl-C to stop)")
 }
 
 func mustLoadClient(cfg config.Config) *xclient.HTTPClient {
@@ -252,6 +256,30 @@ func cmdIngestEvents() {
     // Backfill labels for windows in [since, now]
     if err := ingest.BackfillLabels(ctx, db, since, time.Now().UTC()); err != nil { fmt.Println("label error:", err) }
     fmt.Println("Events ingested and labels backfilled.")
+}
+
+func cmdIngestLoop() {
+    fs := flag.NewFlagSet("ingest-loop", flag.ExitOnError)
+    cfgPath := fs.String("config", "./starseed.yaml", "config path")
+    horizonStr := fs.String("horizon", "6h", "how far back to consider on first run (e.g., 6h, 1h)")
+    intervalStr := fs.String("interval", "5m", "ingestion interval (e.g., 5m, 1m)")
+    _ = fs.Parse(os.Args[2:])
+    cfg, err := config.Load(*cfgPath)
+    if err != nil { fmt.Println("error:", err); os.Exit(1) }
+    client := mustLoadClient(cfg)
+    db, err := sqlitevec.Open(cfg.Storage.DBPath)
+    if err != nil { fmt.Println("db error:", err); os.Exit(1) }
+    defer db.Close()
+    horizon, err := time.ParseDuration(*horizonStr)
+    if err != nil { fmt.Println("bad horizon:", err); os.Exit(1) }
+    interval, err := time.ParseDuration(*intervalStr)
+    if err != nil { fmt.Println("bad interval:", err); os.Exit(1) }
+    // Run until interrupted
+    ctx := context.Background()
+    if err := jobs.RunIngestionLoop(ctx, db, client, cfg, horizon, interval); err != nil {
+        fmt.Println("ingest loop error:", err)
+        os.Exit(1)
+    }
 }
 
 func cmdNNTrain() {
