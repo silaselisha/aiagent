@@ -27,6 +27,7 @@ type XClient interface {
     GetUsersByIDs(ctx context.Context, ids []string) ([]model.User, error)
     GetLikedTweets(ctx context.Context, userID string, limit int) ([]model.Tweet, error)
     GetMentions(ctx context.Context, userID string, limit int) ([]model.Tweet, error)
+    GetQuoteTweets(ctx context.Context, tweetID string, limit int) ([]model.Tweet, error)
 }
 
 // HTTPClient is a simple bearer-token client for X API v2.
@@ -434,6 +435,26 @@ func (c *HTTPClient) GetMentions(ctx context.Context, userID string, limit int) 
             RetweetCount: d.PublicMetrics.RetweetCount,
             QuoteCount: d.PublicMetrics.QuoteCount,
         })
+    }
+    return out, nil
+}
+
+// GetQuoteTweets returns quote tweets for a given tweet id.
+func (c *HTTPClient) GetQuoteTweets(ctx context.Context, tweetID string, limit int) ([]model.Tweet, error) {
+    u := fmt.Sprintf("%s/tweets/%s/quote_tweets?max_results=%d&tweet.fields=created_at,public_metrics,lang,author_id",
+        c.baseURL, url.PathEscape(tweetID), clamp(limit, 10, 100))
+    req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+    c.auth(req)
+    if err := c.limiter.Wait(ctx); err != nil { return nil, err }
+    resp, err := c.doWithRetry(ctx, req)
+    if err != nil { return nil, err }
+    defer resp.Body.Close()
+    if resp.StatusCode >= 400 { return nil, fmt.Errorf("x api status %d", resp.StatusCode) }
+    var raw struct { Data []struct{ ID, Text, AuthorID string; CreatedAt time.Time `json:"created_at"`; Lang string `json:"lang"`; PublicMetrics struct{ LikeCount, ReplyCount, RetweetCount, QuoteCount int } `json:"public_metrics"` } `json:"data"` }
+    if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil { return nil, err }
+    out := make([]model.Tweet, 0, len(raw.Data))
+    for _, d := range raw.Data {
+        out = append(out, model.Tweet{ ID: d.ID, Text: d.Text, AuthorID: d.AuthorID, CreatedAt: d.CreatedAt, Language: d.Lang, LikeCount: d.PublicMetrics.LikeCount, ReplyCount: d.PublicMetrics.ReplyCount, RetweetCount: d.PublicMetrics.RetweetCount, QuoteCount: d.PublicMetrics.QuoteCount })
     }
     return out, nil
 }

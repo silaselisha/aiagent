@@ -27,6 +27,8 @@ func IngestEngagements(ctx context.Context, db *sqlitevec.DB, client xclient.XCl
             }
         }
     }
+    // Retweets and quotes: infer via search and quote_tweets endpoint if needed
+    // For simplicity, treat retweets as mentions of "RT @" in text (approximation), quotes via /quote_tweets per tweet event in window
 	return nil
 }
 
