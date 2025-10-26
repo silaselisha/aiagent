@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+    "os"
+    "strconv"
 	"time"
 
 	"starseed/internal/model"
@@ -32,6 +34,8 @@ type HTTPClient struct {
 	bearerToken string
 	httpClient  *http.Client
     limiter     *rate.Limiter
+    maxAttempts int
+    baseBackoff time.Duration
 }
 
 func NewHTTPClient(bearerToken string) *HTTPClient {
@@ -40,6 +44,8 @@ func NewHTTPClient(bearerToken string) *HTTPClient {
 		bearerToken: bearerToken,
         httpClient:  &http.Client{Timeout: 15 * time.Second},
         limiter:     newDefaultLimiter(),
+        maxAttempts: getEnvInt("X_API_MAX_ATTEMPTS", 5),
+        baseBackoff: time.Duration(getEnvInt("X_API_BASE_BACKOFF_MS", 500)) * time.Millisecond,
 	}
 }
 
@@ -59,7 +65,7 @@ func (c *HTTPClient) GetUserByUsername(ctx context.Context, username string) (mo
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	c.auth(req)
     if err := c.limiter.Wait(ctx); err != nil { return out, err }
-    resp, err := c.httpClient.Do(req)
+    resp, err := c.doWithRetry(ctx, req)
 	if err != nil {
 		return out, err
 	}
@@ -112,12 +118,12 @@ func (c *HTTPClient) GetHomeTimeline(ctx context.Context, userID string, limit i
 
 // SearchRecentTweets searches recent tweets by query of interests.
 func (c *HTTPClient) SearchRecentTweets(ctx context.Context, query string, limit int) ([]model.Tweet, error) {
-    u := fmt.Sprintf("%s/tweets/search/recent?max_results=%d&tweet.fields=created_at,public_metrics,lang&query=%s",
+    u := fmt.Sprintf("%s/tweets/search/recent?max_results=%d&tweet.fields=created_at,public_metrics,lang,author_id&query=%s",
         c.baseURL, clamp(limit, 10, 100), url.QueryEscape(query))
     req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
     c.auth(req)
     if err := c.limiter.Wait(ctx); err != nil { return nil, err }
-    resp, err := c.httpClient.Do(req)
+    resp, err := c.doWithRetry(ctx, req)
     if err != nil { return nil, err }
     defer resp.Body.Close()
     if resp.StatusCode >= 400 { return nil, fmt.Errorf("x api status %d", resp.StatusCode) }
@@ -127,6 +133,7 @@ func (c *HTTPClient) SearchRecentTweets(ctx context.Context, query string, limit
             Text string `json:"text"`
             CreatedAt time.Time `json:"created_at"`
             Lang string `json:"lang"`
+            AuthorID string `json:"author_id"`
             PublicMetrics struct{
                 LikeCount int `json:"like_count"`
                 ReplyCount int `json:"reply_count"`
@@ -143,6 +150,7 @@ func (c *HTTPClient) SearchRecentTweets(ctx context.Context, query string, limit
             Text: d.Text,
             CreatedAt: d.CreatedAt,
             Language: d.Lang,
+            AuthorID: d.AuthorID,
             LikeCount: d.PublicMetrics.LikeCount,
             ReplyCount: d.PublicMetrics.ReplyCount,
             RetweetCount: d.PublicMetrics.RetweetCount,
@@ -157,7 +165,7 @@ func (c *HTTPClient) GetFollowing(ctx context.Context, userID string, limit int)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	c.auth(req)
     if err := c.limiter.Wait(ctx); err != nil { return nil, err }
-    resp, err := c.httpClient.Do(req)
+    resp, err := c.doWithRetry(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +219,7 @@ func (c *HTTPClient) GetUserTweets(ctx context.Context, userID string, limit int
     req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
     c.auth(req)
     if err := c.limiter.Wait(ctx); err != nil { return nil, err }
-    resp, err := c.httpClient.Do(req)
+    resp, err := c.doWithRetry(ctx, req)
     if err != nil { return nil, err }
     defer resp.Body.Close()
     if resp.StatusCode >= 400 { return nil, fmt.Errorf("x api status %d", resp.StatusCode) }
@@ -257,7 +265,7 @@ func (c *HTTPClient) GetUsersByIDs(ctx context.Context, ids []string) ([]model.U
     req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
     c.auth(req)
     if err := c.limiter.Wait(ctx); err != nil { return nil, err }
-    resp, err := c.httpClient.Do(req)
+    resp, err := c.doWithRetry(ctx, req)
     if err != nil { return nil, err }
     defer resp.Body.Close()
     if resp.StatusCode >= 400 { return nil, fmt.Errorf("x api status %d", resp.StatusCode) }
@@ -305,7 +313,7 @@ func (c *HTTPClient) GetLikedTweets(ctx context.Context, userID string, limit in
     req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
     c.auth(req)
     if err := c.limiter.Wait(ctx); err != nil { return nil, err }
-    resp, err := c.httpClient.Do(req)
+    resp, err := c.doWithRetry(ctx, req)
     if err != nil { return nil, err }
     defer resp.Body.Close()
     if resp.StatusCode >= 400 { return nil, fmt.Errorf("x api status %d", resp.StatusCode) }
@@ -349,7 +357,7 @@ func (c *HTTPClient) GetMentions(ctx context.Context, userID string, limit int) 
     req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
     c.auth(req)
     if err := c.limiter.Wait(ctx); err != nil { return nil, err }
-    resp, err := c.httpClient.Do(req)
+    resp, err := c.doWithRetry(ctx, req)
     if err != nil { return nil, err }
     defer resp.Body.Close()
     if resp.StatusCode >= 400 { return nil, fmt.Errorf("x api status %d", resp.StatusCode) }
@@ -387,3 +395,53 @@ func (c *HTTPClient) GetMentions(ctx context.Context, userID string, limit int) 
 }
 
 func clamp(v, min, max int) int { if v < min { return min }; if v > max { return max }; return v }
+
+func (c *HTTPClient) doWithRetry(ctx context.Context, req *http.Request) (*http.Response, error) {
+    backoff := c.baseBackoff
+    var lastErr error
+    for attempt := 1; attempt <= c.maxAttempts; attempt++ {
+        resp, err := c.httpClient.Do(req.Clone(ctx))
+        if err == nil {
+            if resp.StatusCode == http.StatusTooManyRequests || (resp.StatusCode >= 500 && resp.StatusCode <= 599) {
+                ra := resp.Header.Get("Retry-After")
+                _ = resp.Body.Close()
+                wait := backoff
+                if ra != "" {
+                    if secs, err := strconv.Atoi(ra); err == nil {
+                        wait = time.Duration(secs) * time.Second
+                    } else if t, err := http.ParseTime(ra); err == nil {
+                        if d := time.Until(t); d > 0 { wait = d }
+                    }
+                }
+                // jitter +/-20%
+                jitter := time.Duration(float64(wait) * 0.2)
+                if jitter > 0 {
+                    wait = wait - jitter + time.Duration(time.Now().UnixNano()%int64(2*jitter))
+                }
+                select {
+                case <-time.After(wait):
+                case <-ctx.Done():
+                    return nil, ctx.Err()
+                }
+                backoff *= 2
+                continue
+            }
+            return resp, nil
+        }
+        lastErr = err
+        select {
+        case <-time.After(backoff):
+        case <-ctx.Done():
+            return nil, ctx.Err()
+        }
+        backoff *= 2
+    }
+    return nil, fmt.Errorf("request failed after %d attempts: %v", c.maxAttempts, lastErr)
+}
+
+func getEnvInt(key string, def int) int {
+    v := os.Getenv(key)
+    if v == "" { return def }
+    if i, err := strconv.Atoi(v); err == nil && i > 0 { return i }
+    return def
+}

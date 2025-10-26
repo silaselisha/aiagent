@@ -127,10 +127,22 @@ func cmdRecommend() {
 		r := recs[i]
 		fmt.Printf("@%s score=%.2f rel=%.2f bot=%.2f\n", r.User.Username, r.FinalScore, r.RelevanceScore, r.BotLikelihood)
 	}
-    // Discovery by interests
-    tweets, err := recommend.DiscoverTweetsByInterests(ctx, client, cfg, 50)
+    // Discovery by interests -> recommend new accounts not already followed
+    tweets, err := recommend.DiscoverTweetsByInterests(ctx, client, cfg, 100)
     if err == nil {
-        fmt.Printf("Discovered %d interest-matched tweets\n", len(tweets))
+        already := make(map[string]struct{})
+        for _, u := range follows { already[u.ID] = struct{}{} }
+        newUsers, _ := recommend.DiscoverAccountsFromTweets(ctx, client, tweets, already)
+        if len(newUsers) > 0 {
+            newRecs := recommend.RankAccounts(newUsers, cfg.Interests.Keywords, cfg.Interests.Weights)
+            fmt.Println("New accounts to consider:")
+            for i := 0; i < len(newRecs) && i < 20; i++ {
+                r := newRecs[i]
+                fmt.Printf("+ @%s score=%.2f rel=%.2f bot=%.2f\n", r.User.Username, r.FinalScore, r.RelevanceScore, r.BotLikelihood)
+            }
+        } else {
+            fmt.Println("No new accounts discovered from interest tweets.")
+        }
     }
 }
 
