@@ -1,0 +1,49 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: starseed-retrain
+  namespace: starseed
+spec:
+  schedule: "0 3 * * *" # daily 03:00 UTC
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: retrain
+              image: starseed:latest
+              args: ["nn-train-db", "-config", "/app/starseed.yaml", "-hours", "48"]
+              env:
+                - name: METRICS_ADDR
+                  value: ":9090"
+                - name: X_BEARER_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: starseed-secrets
+                      key: X_BEARER_TOKEN
+                - name: X_CONSUMER_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: starseed-secrets
+                      key: X_CONSUMER_KEY
+                - name: X_CONSUMER_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: starseed-secrets
+                      key: X_CONSUMER_SECRET
+                - name: X_ACCESS_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: starseed-secrets
+                      key: X_ACCESS_TOKEN
+                - name: X_ACCESS_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: starseed-secrets
+                      key: X_ACCESS_SECRET
+                - name: OPENAI_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: starseed-secrets
+                      key: OPENAI_API_KEY

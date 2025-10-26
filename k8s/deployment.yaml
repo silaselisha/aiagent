@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: starseed
+  namespace: starseed
+  labels:
+    app: starseed
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: starseed
+  template:
+    metadata:
+      labels:
+        app: starseed
+    spec:
+      containers:
+        - name: starseed
+          image: starseed:latest
+          imagePullPolicy: IfNotPresent
+          args: ["ingest-loop", "-config", "/app/starseed.yaml", "-horizon", "6h", "-interval", "5m"]
+          env:
+            - name: X_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: starseed-secrets
+                  key: X_BEARER_TOKEN
+            - name: X_CONSUMER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: starseed-secrets
+                  key: X_CONSUMER_KEY
+            - name: X_CONSUMER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: starseed-secrets
+                  key: X_CONSUMER_SECRET
+            - name: X_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: starseed-secrets
+                  key: X_ACCESS_TOKEN
+            - name: X_ACCESS_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: starseed-secrets
+                  key: X_ACCESS_SECRET
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: starseed-secrets
+                  key: OPENAI_API_KEY
+            - name: METRICS_ADDR
+              value: ":9090"
+            - name: X_API_RPS
+              value: "2"
+            - name: X_API_BURST
+              value: "10"
+            - name: X_API_MAX_ATTEMPTS
+              value: "5"
+            - name: X_API_BASE_BACKOFF_MS
+              value: "500"
+          ports:
+            - name: http-metrics
+              containerPort: 9090
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http-metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http-metrics
+            initialDelaySeconds: 10
+            periodSeconds: 20
+      volumes:
+        - name: data
+          emptyDir: {}
