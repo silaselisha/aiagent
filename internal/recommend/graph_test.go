@@ -6,6 +6,7 @@ import (
     "time"
 
 	"starseed/internal/model"
+    "starseed/internal/store/sqlitevec"
 )
 
 type fakeGraphClient struct{}
@@ -35,4 +36,18 @@ func TestDiscoverGraphOneHop(t *testing.T) {
 	got, err := DiscoverGraph(ctx, client, seed, 10)
 	if err != nil { t.Fatal(err) }
 	if len(got) == 0 { t.Fatalf("expected discovered users") }
+}
+
+func TestRankGraphBoosts(t *testing.T) {
+    ctx := context.Background()
+    db, _ := sqlitevec.Open(":memory:")
+    defer db.Close()
+    now := time.Now().UTC()
+    // record some interactions by author 'a'
+    _ = db.PutEvent(ctx, now.Add(-1*time.Hour), "reply", map[string]any{"author_id":"a"})
+    users := []model.User{{ID:"a", Username:"a"}, {ID:"b", Username:"b"}}
+    seed := []model.User{{ID:"seed", Username:"seed"}}
+    recs := RankGraph(ctx, db, users, seed, []string{"golang"}, map[string]float64{"golang":1})
+    if len(recs) < 2 { t.Fatalf("need at least two recs") }
+    if recs[0].User.ID != "a" { t.Fatalf("expected 'a' boosted to top, got %s", recs[0].User.ID) }
 }
