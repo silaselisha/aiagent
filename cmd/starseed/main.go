@@ -17,6 +17,7 @@ import (
 	"starseed/internal/theme"
 	"starseed/internal/xclient"
     "starseed/internal/ingest"
+    "starseed/internal/nn"
 )
 
 func main() {
@@ -39,6 +40,10 @@ func main() {
 		cmdAudit()
 	case "schedule":
 		cmdSchedule()
+    case "nn-train":
+        cmdNNTrain()
+    case "nn-infer":
+        cmdNNInfer()
 	default:
 		printHelp()
 	}
@@ -55,6 +60,8 @@ func printHelp() {
 	fmt.Println("  monitor     Show hourly engagement analytics")
 	fmt.Println("  audit       Bot-likelihood and organic filters")
 	fmt.Println("  schedule    Show next engagement window")
+    fmt.Println("  nn-train    Train NN on 15-min features")
+    fmt.Println("  nn-infer    Infer with NN on 15-min features")
 }
 
 func mustLoadClient(cfg config.Config) *xclient.HTTPClient {
@@ -191,6 +198,57 @@ func cmdSchedule() {
 	qh := parseHours(*quiet)
 	next := scheduleNext(qh)
 	fmt.Println("Next window:", next.Format(time.RFC3339))
+}
+
+func cmdNNTrain() {
+    fs := flag.NewFlagSet("nn-train", flag.ExitOnError)
+    cfgPath := fs.String("config", "./starseed.yaml", "config path")
+    bin := fs.String("bin", "./starseed-nn/target/release/starseed-nn", "path to Rust NN binary")
+    modelOut := fs.String("out", "./starseed_model.json", "output model path")
+    hidden := fs.Int("hidden", 64, "hidden units")
+    epochs := fs.Int("epochs", 10, "epochs")
+    _ = fs.Parse(os.Args[2:])
+    cfg, err := config.Load(*cfgPath)
+    if err != nil { fmt.Println("error:", err); os.Exit(1) }
+    client := mustLoadClient(cfg)
+    ctx := context.Background()
+    me, err := client.GetUserByUsername(ctx, cfg.Account.Username)
+    if err != nil { fmt.Println("error:", err); os.Exit(1) }
+    follows, err := client.GetFollowing(ctx, me.ID, 100)
+    if err != nil { fmt.Println("error:", err); os.Exit(1) }
+    // Build samples over the last few hours from followings' tweets (proxy)
+    timeline, _ := ingest.FromFollowing(ctx, client, follows, 5, 300)
+    var samples []nn.FeatureVector
+    now := time.Now().UTC().Add(-6 * time.Hour)
+    for w := 0; w < 24; w++ { // 6 hours in 15-min windows
+        ws := now.Add(time.Duration(w) * 15 * time.Minute)
+        fv := nn.BuildFeatures(ws, timeline, nil)
+        samples = append(samples, fv)
+    }
+    if err := nn.Train(*bin, *modelOut, samples, *hidden, *epochs, 0.01); err != nil { fmt.Println("train error:", err); os.Exit(1) }
+    fmt.Println("Model written to:", *modelOut)
+}
+
+func cmdNNInfer() {
+    fs := flag.NewFlagSet("nn-infer", flag.ExitOnError)
+    cfgPath := fs.String("config", "./starseed.yaml", "config path")
+    bin := fs.String("bin", "./starseed-nn/target/release/starseed-nn", "path to Rust NN binary")
+    modelPath := fs.String("model", "./starseed_model.json", "model path")
+    _ = fs.Parse(os.Args[2:])
+    cfg, err := config.Load(*cfgPath)
+    if err != nil { fmt.Println("error:", err); os.Exit(1) }
+    client := mustLoadClient(cfg)
+    ctx := context.Background()
+    me, err := client.GetUserByUsername(ctx, cfg.Account.Username)
+    if err != nil { fmt.Println("error:", err); os.Exit(1) }
+    follows, err := client.GetFollowing(ctx, me.ID, 100)
+    if err != nil { fmt.Println("error:", err); os.Exit(1) }
+    timeline, _ := ingest.FromFollowing(ctx, client, follows, 5, 100)
+    ws := time.Now().UTC().Add(-15 * time.Minute)
+    fv := nn.BuildFeatures(ws, timeline, nil)
+    preds, err := nn.Infer(*bin, *modelPath, []nn.FeatureVector{fv})
+    if err != nil { fmt.Println("infer error:", err); os.Exit(1) }
+    if len(preds) > 0 { fmt.Printf("pred next-window reply proxy: %.3f\n", preds[0][0]) }
 }
 
 func parseHours(s string) []int {
