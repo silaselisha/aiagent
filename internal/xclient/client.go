@@ -22,6 +22,8 @@ type XClient interface {
     SearchRecentTweets(ctx context.Context, query string, limit int) ([]model.Tweet, error)
     GetUserTweets(ctx context.Context, userID string, limit int) ([]model.Tweet, error)
     GetUsersByIDs(ctx context.Context, ids []string) ([]model.User, error)
+    GetLikedTweets(ctx context.Context, userID string, limit int) ([]model.Tweet, error)
+    GetMentions(ctx context.Context, userID string, limit int) ([]model.Tweet, error)
 }
 
 // HTTPClient is a simple bearer-token client for X API v2.
@@ -291,6 +293,94 @@ func (c *HTTPClient) GetUsersByIDs(ctx context.Context, ids []string) ([]model.U
             FollowingCount: d.PublicMetrics.FollowingCount,
             TweetCount: d.PublicMetrics.TweetCount,
             ListedCount: d.PublicMetrics.ListedCount,
+        })
+    }
+    return out, nil
+}
+
+// GetLikedTweets returns tweets liked by the user.
+func (c *HTTPClient) GetLikedTweets(ctx context.Context, userID string, limit int) ([]model.Tweet, error) {
+    u := fmt.Sprintf("%s/users/%s/liked_tweets?max_results=%d&tweet.fields=created_at,public_metrics,lang,author_id",
+        c.baseURL, url.PathEscape(userID), clamp(limit, 10, 100))
+    req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+    c.auth(req)
+    if err := c.limiter.Wait(ctx); err != nil { return nil, err }
+    resp, err := c.httpClient.Do(req)
+    if err != nil { return nil, err }
+    defer resp.Body.Close()
+    if resp.StatusCode >= 400 { return nil, fmt.Errorf("x api status %d", resp.StatusCode) }
+    var raw struct {
+        Data []struct {
+            ID string `json:"id"`
+            Text string `json:"text"`
+            AuthorID string `json:"author_id"`
+            CreatedAt time.Time `json:"created_at"`
+            Lang string `json:"lang"`
+            PublicMetrics struct{
+                LikeCount int `json:"like_count"`
+                ReplyCount int `json:"reply_count"`
+                RetweetCount int `json:"retweet_count"`
+                QuoteCount int `json:"quote_count"`
+            } `json:"public_metrics"`
+        } `json:"data"`
+    }
+    if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil { return nil, err }
+    out := make([]model.Tweet, 0, len(raw.Data))
+    for _, d := range raw.Data {
+        out = append(out, model.Tweet{
+            ID: d.ID,
+            AuthorID: d.AuthorID,
+            Text: d.Text,
+            CreatedAt: d.CreatedAt,
+            Language: d.Lang,
+            LikeCount: d.PublicMetrics.LikeCount,
+            ReplyCount: d.PublicMetrics.ReplyCount,
+            RetweetCount: d.PublicMetrics.RetweetCount,
+            QuoteCount: d.PublicMetrics.QuoteCount,
+        })
+    }
+    return out, nil
+}
+
+// GetMentions returns tweets that mention the user.
+func (c *HTTPClient) GetMentions(ctx context.Context, userID string, limit int) ([]model.Tweet, error) {
+    u := fmt.Sprintf("%s/users/%s/mentions?max_results=%d&tweet.fields=created_at,public_metrics,lang,author_id",
+        c.baseURL, url.PathEscape(userID), clamp(limit, 10, 100))
+    req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+    c.auth(req)
+    if err := c.limiter.Wait(ctx); err != nil { return nil, err }
+    resp, err := c.httpClient.Do(req)
+    if err != nil { return nil, err }
+    defer resp.Body.Close()
+    if resp.StatusCode >= 400 { return nil, fmt.Errorf("x api status %d", resp.StatusCode) }
+    var raw struct {
+        Data []struct {
+            ID string `json:"id"`
+            Text string `json:"text"`
+            AuthorID string `json:"author_id"`
+            CreatedAt time.Time `json:"created_at"`
+            Lang string `json:"lang"`
+            PublicMetrics struct{
+                LikeCount int `json:"like_count"`
+                ReplyCount int `json:"reply_count"`
+                RetweetCount int `json:"retweet_count"`
+                QuoteCount int `json:"quote_count"`
+            } `json:"public_metrics"`
+        } `json:"data"`
+    }
+    if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil { return nil, err }
+    out := make([]model.Tweet, 0, len(raw.Data))
+    for _, d := range raw.Data {
+        out = append(out, model.Tweet{
+            ID: d.ID,
+            AuthorID: d.AuthorID,
+            Text: d.Text,
+            CreatedAt: d.CreatedAt,
+            Language: d.Lang,
+            LikeCount: d.PublicMetrics.LikeCount,
+            ReplyCount: d.PublicMetrics.ReplyCount,
+            RetweetCount: d.PublicMetrics.RetweetCount,
+            QuoteCount: d.PublicMetrics.QuoteCount,
         })
     }
     return out, nil

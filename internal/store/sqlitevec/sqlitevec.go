@@ -91,6 +91,43 @@ func (d *DB) PutEvent(ctx context.Context, ts time.Time, typ string, payload any
 	return err
 }
 
+// Event is a stored engagement event
+type Event struct { TS time.Time; Type string; Payload string }
+
+// LoadEventsRange returns events in [start, end)
+func (d *DB) LoadEventsRange(ctx context.Context, start, end time.Time, typ string) ([]Event, error) {
+    var rows *sql.Rows
+    var err error
+    if typ == "" {
+        rows, err = d.sql.QueryContext(ctx, `SELECT ts, type, payload FROM events WHERE ts>=? AND ts<? ORDER BY ts`, start.Unix(), end.Unix())
+    } else {
+        rows, err = d.sql.QueryContext(ctx, `SELECT ts, type, payload FROM events WHERE ts>=? AND ts<? AND type=? ORDER BY ts`, start.Unix(), end.Unix(), typ)
+    }
+    if err != nil { return nil, err }
+    defer rows.Close()
+    var out []Event
+    for rows.Next() {
+        var ts int64; var typ string; var payload string
+        if err := rows.Scan(&ts, &typ, &payload); err != nil { return nil, err }
+        out = append(out, Event{TS: time.Unix(ts,0).UTC(), Type: typ, Payload: payload})
+    }
+    return out, rows.Err()
+}
+
+// LoadMetasRange returns meta JSON for windows in [start,end)
+func (d *DB) LoadMetasRange(ctx context.Context, start, end time.Time) ([]string, error) {
+    rows, err := d.sql.QueryContext(ctx, `SELECT meta FROM feature_windows WHERE window_start>=? AND window_start<? ORDER BY window_start`, start.Unix(), end.Unix())
+    if err != nil { return nil, err }
+    defer rows.Close()
+    var out []string
+    for rows.Next() {
+        var m sql.NullString
+        if err := rows.Scan(&m); err != nil { return nil, err }
+        if m.Valid { out = append(out, m.String) }
+    }
+    return out, rows.Err()
+}
+
 // SaveThreshold stores a single threshold value.
 func (d *DB) SaveThreshold(ctx context.Context, thr float64) error {
 	_, err := d.sql.ExecContext(ctx, `INSERT INTO calibration(id, threshold) VALUES(1, ?) ON CONFLICT(id) DO UPDATE SET threshold=excluded.threshold`, thr)

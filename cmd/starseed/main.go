@@ -18,6 +18,7 @@ import (
 	"starseed/internal/xclient"
     "starseed/internal/ingest"
     "starseed/internal/nn"
+    "starseed/internal/store/sqlitevec"
 )
 
 func main() {
@@ -219,11 +220,16 @@ func cmdNNTrain() {
     // Build samples over the last few hours from followings' tweets (proxy)
     timeline, _ := ingest.FromFollowing(ctx, client, follows, 5, 300)
     var samples []nn.FeatureVector
+    // Persist features in vector DB for rolling and later training
+    db, err := sqlitevec.Open(cfg.Storage.DBPath)
+    if err != nil { fmt.Println("db error:", err); os.Exit(1) }
+    defer db.Close()
     now := time.Now().UTC().Add(-6 * time.Hour)
     for w := 0; w < 24; w++ { // 6 hours in 15-min windows
         ws := now.Add(time.Duration(w) * 15 * time.Minute)
-        fv := nn.BuildFeatures(ws, timeline, nil)
+        fv, _ := nn.BuildFeaturesWithHistory(ctx, db, ws, timeline, nil)
         samples = append(samples, fv)
+        _ = db.PutFeature(ctx, ws, fv.X, nil, map[string]any{"source":"train-window"})
     }
     if err := nn.Train(*bin, *modelOut, samples, *hidden, *epochs, 0.01); err != nil { fmt.Println("train error:", err); os.Exit(1) }
     fmt.Println("Model written to:", *modelOut)
@@ -245,7 +251,11 @@ func cmdNNInfer() {
     if err != nil { fmt.Println("error:", err); os.Exit(1) }
     timeline, _ := ingest.FromFollowing(ctx, client, follows, 5, 100)
     ws := time.Now().UTC().Add(-15 * time.Minute)
-    fv := nn.BuildFeatures(ws, timeline, nil)
+    // open DB to leverage rolling history during inference feature build
+    db, err := sqlitevec.Open(cfg.Storage.DBPath)
+    if err != nil { fmt.Println("db error:", err); os.Exit(1) }
+    defer db.Close()
+    fv, _ := nn.BuildFeaturesWithHistory(ctx, db, ws, timeline, nil)
     preds, err := nn.Infer(*bin, *modelPath, []nn.FeatureVector{fv})
     if err != nil { fmt.Println("infer error:", err); os.Exit(1) }
     if len(preds) > 0 { fmt.Printf("pred next-window reply proxy: %.3f\n", preds[0][0]) }
