@@ -17,6 +17,7 @@ type Config struct {
 	Filters     FiltersConfig     `yaml:"filters"`
 	Engagement  EngagementConfig  `yaml:"engagement"`
 	LLM         LLMConfig         `yaml:"llm"`
+    Storage     StorageConfig     `yaml:"storage"`
 }
 
 type AccountConfig struct {
@@ -59,6 +60,10 @@ type LLMConfig struct {
 	APIKey string `yaml:"apiKey"`
 }
 
+type StorageConfig struct {
+    DBPath string `yaml:"dbPath"`
+}
+
 // Default returns a sensible default configuration.
 func Default() Config {
 	return Config{
@@ -72,6 +77,7 @@ func Default() Config {
 		Filters: FiltersConfig{MinOrganicScore: 0.55, MaxBotLikelihood: 0.35, Languages: []string{"en"}},
 		Engagement: EngagementConfig{MaxPerHour: 6, MaxPerDay: 40, QuietHours: []int{0, 1, 2, 3, 4, 5}},
 		LLM:       LLMConfig{Provider: "none", Model: "gpt-4o-mini", APIKey: ""},
+        Storage:  StorageConfig{DBPath: "./starseed.db"},
 	}
 }
 
