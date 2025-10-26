@@ -1,0 +1,52 @@
+package jobs
+
+import (
+	"context"
+	"time"
+
+	"starseed/internal/config"
+	"starseed/internal/ingest"
+	"starseed/internal/store/sqlitevec"
+	"starseed/internal/xclient"
+)
+
+const cursorKey = "ingest:last_ts"
+
+// RunIngestionOnce fetches engagements since last cursor (or now-horizon), stores events, and backfills labels.
+func RunIngestionOnce(ctx context.Context, db *sqlitevec.DB, client xclient.XClient, cfg config.Config, horizon time.Duration) error {
+	now := time.Now().UTC()
+	since := now.Add(-horizon)
+	if v, err := db.LoadCursor(ctx, cursorKey); err == nil && v != "" {
+		if ts, err2 := time.Parse(time.RFC3339Nano, v); err2 == nil {
+			since = ts
+		}
+	}
+	me, err := client.GetUserByUsername(ctx, cfg.Account.Username)
+	if err != nil {
+		return err
+	}
+	if err := ingest.IngestEngagements(ctx, db, client, me.ID, since); err != nil {
+		return err
+	}
+	if err := ingest.BackfillLabels(ctx, db, since, now); err != nil {
+		return err
+	}
+	_ = db.SaveCursor(ctx, cursorKey, now.Format(time.RFC3339Nano))
+	return nil
+}
+
+// RunIngestionLoop runs RunIngestionOnce on a ticker until ctx is cancelled.
+func RunIngestionLoop(ctx context.Context, db *sqlitevec.DB, client xclient.XClient, cfg config.Config, horizon, interval time.Duration) error {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	// run immediately
+	_ = RunIngestionOnce(ctx, db, client, cfg, horizon)
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-t.C:
+			_ = RunIngestionOnce(ctx, db, client, cfg, horizon)
+		}
+	}
+}

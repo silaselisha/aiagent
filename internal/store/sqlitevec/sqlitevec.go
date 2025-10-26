@@ -47,6 +47,16 @@ func (d *DB) migrate() error {
 	  id INTEGER PRIMARY KEY CHECK (id=1),
 	  threshold REAL
 	);
+	CREATE TABLE IF NOT EXISTS cursors (
+	  key TEXT PRIMARY KEY,
+	  value TEXT
+	);
+	CREATE TABLE IF NOT EXISTS actions (
+	  id INTEGER PRIMARY KEY AUTOINCREMENT,
+	  ts INTEGER NOT NULL,
+	  type TEXT NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_actions_ts ON actions(ts);
 	`)
 	return err
 }
@@ -146,6 +156,38 @@ func (d *DB) LoadThreshold(ctx context.Context) (float64, error) {
 	if err := row.Scan(&thr); err != nil { return 0, err }
 	if !thr.Valid { return 0, errors.New("no threshold") }
 	return thr.Float64, nil
+}
+
+// Cursor helpers
+func (d *DB) SaveCursor(ctx context.Context, key, value string) error {
+    _, err := d.sql.ExecContext(ctx, `INSERT INTO cursors(key, value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, value)
+    return err
+}
+
+func (d *DB) LoadCursor(ctx context.Context, key string) (string, error) {
+    row := d.sql.QueryRowContext(ctx, `SELECT value FROM cursors WHERE key=?`, key)
+    var v sql.NullString
+    if err := row.Scan(&v); err != nil { return "", err }
+    if !v.Valid { return "", errors.New("cursor empty") }
+    return v.String, nil
+}
+
+// Action helpers
+func (d *DB) PutAction(ctx context.Context, ts time.Time, typ string) error {
+    _, err := d.sql.ExecContext(ctx, `INSERT INTO actions(ts, type) VALUES(?,?)`, ts.Unix(), typ)
+    return err
+}
+
+func (d *DB) CountActionsWithin(ctx context.Context, start, end time.Time, typ string) (int, error) {
+    var row *sql.Row
+    if typ == "" {
+        row = d.sql.QueryRowContext(ctx, `SELECT COUNT(1) FROM actions WHERE ts>=? AND ts<?`, start.Unix(), end.Unix())
+    } else {
+        row = d.sql.QueryRowContext(ctx, `SELECT COUNT(1) FROM actions WHERE ts>=? AND ts<? AND type=?`, start.Unix(), end.Unix(), typ)
+    }
+    var n int
+    if err := row.Scan(&n); err != nil { return 0, err }
+    return n, nil
 }
 
 func encodeF32(v []float32) []byte {
