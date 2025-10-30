@@ -109,3 +109,5 @@ Edit `starseed.yaml`:
 
 ## License
 MIT
+cl/id-LVlTb2l6UUdvUnRJZjRoWkdJM0k6MTpjaQ
+cl/s-h2i6qMesOmgqWFsOpQ9n9xUzbZ8-fbGKAjtFhXQ6mkeUcuT8Wb
